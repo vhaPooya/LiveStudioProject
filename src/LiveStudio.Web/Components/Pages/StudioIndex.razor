@@ -1,0 +1,110 @@
+@page "/studio"
+@attribute [Authorize(Policy = "Customer")]
+@rendermode InteractiveServer
+@using System.Net.Http.Json
+@using System.Text.Json
+@inject TenantApi TenantApi
+
+<PageTitle>انتخاب پخش | LiveStudio</PageTitle>
+
+<header class="topbar">
+    <div>
+        <div class="eyebrow">LIVESTUDIO / SELECT BROADCAST</div>
+        <h1>ورود به استودیو</h1>
+        <p class="studio-subtitle">پخش موردنظر را انتخاب کنید تا وارد استودیوی همان رویداد شوید.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/panel">بازگشت به داشبورد</a>
+</header>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="notice notice-error">@ErrorMessage</div>
+}
+@if (IsLoading)
+{
+    <div class="loading-panel">در حال دریافت فهرست پخش‌ها از یوتیوب...</div>
+}
+else if (Broadcasts.Count == 0)
+{
+    <section class="panel empty-state mt-3">
+        <div class="empty-icon"><i class="bi bi-camera-video"></i></div>
+        <strong>پخشی برای ورود به استودیو پیدا نشد</strong>
+        <p>ابتدا از داشبورد یک پخش زنده در یوتیوب ایجاد کنید.</p>
+        <a class="btn btn-primary" href="/panel#broadcasts">رفتن به داشبورد</a>
+    </section>
+}
+else
+{
+    <section class="panel mt-3">
+        <div class="panel-heading">
+            <div><div class="eyebrow">YOUR BROADCASTS</div><h3>انتخاب رویداد</h3></div>
+            <span class="count-pill">@Broadcasts.Count پخش</span>
+        </div>
+        <div class="broadcast-list">
+            @foreach (var item in Broadcasts)
+            {
+                <div class="broadcast-row">
+                    <div class="broadcast-symbol"><i class="bi bi-play-fill"></i></div>
+                    <div class="broadcast-info">
+                        <strong>@item.Title</strong>
+                        <small>@StatusLabel(item.Status) · @FormatDate(item.ScheduledStartAt)</small>
+                    </div>
+                    <a class="btn btn-primary btn-sm" href="@($"/studio/{Uri.EscapeDataString(item.Id)}")">
+                        <i class="bi bi-box-arrow-in-left ms-1"></i>ورود به این استودیو
+                    </a>
+                </div>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    private readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private HttpClient Api => TenantApi.Client;
+    private List<BroadcastSummary> Broadcasts = [];
+    private bool IsLoading = true;
+    private string? ErrorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var connection = await Api.GetFromJsonAsync<ConnectionStatus>("/api/v1/youtube/connection", JsonOptions);
+            if (connection?.IsConnected != true)
+            {
+                ErrorMessage = "ابتدا حساب یوتیوب را از داشبورد متصل کنید.";
+                return;
+            }
+
+            Broadcasts = await Api.GetFromJsonAsync<List<BroadcastSummary>>("/api/v1/youtube/broadcasts", JsonOptions) ?? [];
+            Broadcasts = Broadcasts
+                .Where(x => !string.Equals(x.Status, "complete", StringComparison.OrdinalIgnoreCase)
+                         && !string.Equals(x.Status, "revoked", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(x => x.ScheduledStartAt)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private static string StatusLabel(string? status) => status?.ToLowerInvariant() switch
+    {
+        "live" => "در حال پخش",
+        "ready" => "آماده پخش",
+        "testing" => "در حال آزمایش",
+        "created" => "ایجادشده",
+        _ => status ?? "نامشخص"
+    };
+
+    private static string FormatDate(DateTimeOffset? value) =>
+        value?.ToLocalTime().ToString("yyyy/MM/dd HH:mm") ?? "زمان ثبت نشده";
+
+    private sealed record ConnectionStatus(bool IsConfigured, bool IsConnected, string? ChannelTitle);
+    private sealed record BroadcastSummary(string Id, string Title, string Status, DateTimeOffset? ScheduledStartAt, string? StreamId = null);
+}

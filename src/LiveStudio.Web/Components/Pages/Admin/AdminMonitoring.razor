@@ -1,0 +1,88 @@
+@page "/admin/monitoring"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:monitoring")]
+@implements IDisposable
+@inject CurrentUser Me
+@inject IMonitoringService Monitoring
+
+<PageTitle>پایش سامانه | مدیریت LiveStudio</PageTitle>
+<header class="topbar"><div><div class="eyebrow">ADMIN / MONITORING</div><h1>پایش و عملکرد سامانه</h1></div>
+    <div class="top-actions"><label class="check-inline"><input type="checkbox" @bind="_auto" /> بروزرسانی خودکار</label><button class="btn btn-primary" @onclick="CheckAsync" disabled="@_busy"><i class="bi bi-arrow-repeat ms-1"></i>بررسی اکنون</button></div></header>
+
+@if (_snapshot is null) { <div class="loading-panel">در حال بررسی سرویس‌ها...</div> }
+else
+{
+    <section class="stat-grid">
+        <div class="stat-card"><i class="bi bi-hourglass-split"></i><small>مدت فعالیت وب‌سایت</small><strong>@Uptime(_snapshot.Uptime)</strong><em>آخرین بررسی: @Fa.Date(_snapshot.At, true)</em></div>
+        <div class="stat-card"><i class="bi bi-memory"></i><small>حافظه مصرفی</small><strong>@_snapshot.WorkingSetMb MB</strong><em>@_snapshot.ThreadCount رشته فعال</em></div>
+        <div class="stat-card @(_snapshot.DiskFreeGb < 5 ? "warn" : "")"><i class="bi bi-hdd"></i><small>فضای آزاد دیسک</small><strong>@_snapshot.DiskFreeGb GB</strong><em>از @_snapshot.DiskTotalGb GB</em></div>
+        <div class="stat-card @(_openAlerts > 0 ? "bad" : "ok")"><i class="bi bi-bell"></i><small>هشدارهای فعال</small><strong>@_openAlerts</strong><em>@(_openAlerts > 0 ? "نیازمند بررسی" : "بدون مشکل")</em></div>
+    </section>
+    <section class="panel mt-3"><div class="panel-heading"><div><div class="eyebrow">SERVICES</div><h3>وضعیت سرویس‌ها</h3></div></div>
+        <div class="health-grid">@foreach (var s in _snapshot.Services)
+        {
+            <div class="health @(s.Unknown ? "unknown" : s.Healthy ? "ok" : "bad")"><i class="bi @(s.Unknown ? "bi-dash-circle" : s.Healthy ? "bi-check-circle-fill" : "bi-x-circle-fill")"></i>
+                <div><strong>@s.Title</strong><small>@s.Detail</small></div>@if (s.LatencyMs is { } ms) { <em>@ms ms</em> }</div>
+        }</div></section>
+}
+
+<section class="panel mt-3">
+    <div class="panel-heading"><div><div class="eyebrow">ALERTS</div><h3>هشدارها و رخدادها</h3></div><button class="btn btn-outline-secondary btn-sm" @onclick="ResolveAllAsync" disabled="@(_openAlerts == 0)"><i class="bi bi-check2-all ms-1"></i>رفع همه</button></div>
+    <div class="toolbar"><SearchBox Value="@_query" ValueChanged="OnSearch" Placeholder="جستجو در عنوان، منبع یا توضیح..." />
+        <select class="form-select" @onchange="OnResolved"><option value="">همه</option><option value="open">فعال</option><option value="resolved">رفع‌شده</option></select>
+        <select class="form-select" @onchange="OnSeverity"><option value="">همه شدت‌ها</option>@foreach (var s in Enum.GetValues<AlertSeverity>()) { <option value="@((int)s)">@Fa.Severity(s)</option> }</select></div>
+    @if (_alerts.Items.Count == 0) { <div class="empty-state"><div class="empty-icon"><i class="bi bi-bell-slash"></i></div><strong>هشداری ثبت نشده است</strong></div> }
+    else
+    {
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>زمان</th><th>شدت</th><th>منبع</th><th>عنوان</th><th>توضیح</th><th>وضعیت</th><th></th></tr></thead>
+            <tbody>@foreach (var a in _alerts.Items)
+            {
+                <tr><td>@Fa.Date(a.At, true)</td><td><span class="b @Fa.SeverityClass(a.Severity)">@Fa.Severity(a.Severity)</span></td><td class="ltr-text">@a.Source</td><td class="cell-strong">@a.Title</td><td>@a.Message</td>
+                    <td>@if (a.IsResolved) { <span class="b b-green">رفع شد</span><br /><small class="muted">@Fa.Date(a.ResolvedAt, true)</small> } else { <span class="b b-red">فعال</span> }</td>
+                    <td class="actions">@if (!a.IsResolved) { <button class="btn btn-outline-success btn-sm" @onclick="() => ResolveAsync(a.Id)"><i class="bi bi-check2"></i></button> }</td></tr>
+            }</tbody></table></div>
+        <Pager Page="_alerts.Page" TotalPages="_alerts.TotalPages" Total="_alerts.Total" PageChanged="GoPage" />
+    }
+</section>
+
+@code {
+    private SystemSnapshot? _snapshot;
+    private PagedResult<SystemAlert> _alerts = PagedResult<SystemAlert>.Empty();
+    private string? _query;
+    private bool? _resolved;
+    private AlertSeverity? _severity;
+    private int _page = 1, _openAlerts;
+    private bool _busy, _auto = true;
+    private System.Threading.Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _snapshot = Monitoring.LastSnapshot;
+        await LoadAlertsAsync();
+        await CheckAsync();
+        _timer = new System.Threading.Timer(async _ => { if (_auto) await InvokeAsync(CheckAsync); }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task CheckAsync()
+    {
+        if (_busy) return;
+        _busy = true;
+        try { _snapshot = await Monitoring.CheckNowAsync(true); await LoadAlertsAsync(); }
+        finally { _busy = false; StateHasChanged(); }
+    }
+
+    private async Task LoadAlertsAsync()
+    {
+        _alerts = await Monitoring.AlertsAsync(_query, _resolved, _severity, _page, 10);
+        _openAlerts = await Monitoring.OpenAlertCountAsync();
+    }
+
+    private async Task OnSearch(string text) { _query = text; _page = 1; await LoadAlertsAsync(); }
+    private async Task OnResolved(ChangeEventArgs e) { _resolved = e.Value?.ToString() switch { "open" => false, "resolved" => true, _ => null }; _page = 1; await LoadAlertsAsync(); }
+    private async Task OnSeverity(ChangeEventArgs e) { _severity = int.TryParse(e.Value?.ToString(), out var v) ? (AlertSeverity)v : null; _page = 1; await LoadAlertsAsync(); }
+    private async Task GoPage(int page) { _page = page; await LoadAlertsAsync(); }
+    private async Task ResolveAsync(Guid id) { await Monitoring.ResolveAsync(id, await Me.ActorAsync()); await LoadAlertsAsync(); }
+    private async Task ResolveAllAsync() { await Monitoring.ResolveAllAsync(await Me.ActorAsync()); await LoadAlertsAsync(); }
+    private static string Uptime(TimeSpan t) => t.TotalDays >= 1 ? $"{(int)t.TotalDays} روز و {t.Hours} ساعت" : $"{t.Hours} ساعت و {t.Minutes} دقیقه";
+    public void Dispose() => _timer?.Dispose();
+}

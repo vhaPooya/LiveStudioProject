@@ -1,0 +1,119 @@
+@page "/panel/team"
+@attribute [Authorize(Policy = "Customer")]
+@using System.Net.Http.Json
+@using System.Text.Json
+@inject CurrentUser User
+@inject ITeamService TeamSvc
+@inject StudioAccess Access
+
+<PageTitle>تیم و نقش‌ها | LiveStudio</PageTitle>
+
+<header class="topbar"><div><div class="eyebrow">TEAM / ROLES</div><h1>تیم و نقش‌ها</h1></div></header>
+
+@if (!string.IsNullOrWhiteSpace(_error)) { <div class="notice notice-error mt-3">@_error</div> }
+
+<section class="panel mt-3">
+    <h3 class="h6">نقش‌ها و دسترسی‌ها</h3>
+    <div class="table-responsive">
+        <table class="table table-dark align-middle mb-0">
+            <thead><tr><th>نقش</th><th>توضیح</th></tr></thead>
+            <tbody>@foreach (var r in StudioRoles.All) { <tr><td><span class="sy-role">@r.Title</span></td><td>@r.Description</td></tr> }</tbody>
+        </table>
+    </div>
+    <small class="text-secondary d-block mt-2">اعضا باید قبلاً در LiveStudio ثبت‌نام کرده باشند. دسترسی‌ها در سمت سرور کنترل می‌شود و عضو فقط کارهای مجاز نقش خود را انجام می‌دهد.</small>
+</section>
+
+<section class="panel mt-3">
+    <h3 class="h6">اعضای تیم من</h3>
+    @foreach (var m in _members)
+    {
+        <div class="sy-dest">
+            <div class="flex-fill"><strong>@m.FullName</strong><small>@m.Mobile</small></div>
+            <select class="form-select form-select-sm" style="max-width:170px" value="@m.Role" @onchange="e => ChangeRoleAsync(m, e)">
+                @foreach (var r in StudioRoles.All) { <option value="@r.Key">@r.Title</option> }
+            </select>
+            <button class="btn btn-sm btn-outline-danger" title="حذف" @onclick="() => RemoveAsync(m)"><i class="bi bi-trash3"></i></button>
+        </div>
+    }
+    @if (_members.Count == 0) { <p class="text-secondary mb-2">هنوز عضوی اضافه نکرده‌اید.</p> }
+    <div class="row g-2 mt-2">
+        <div class="col-md-5"><input class="form-control form-control-sm" dir="ltr" placeholder="موبایل عضو (09123456789)" @bind="_mobile" @bind:event="oninput" /></div>
+        <div class="col-md-4">
+            <select class="form-select form-select-sm" @bind="_role">@foreach (var r in StudioRoles.All) { <option value="@r.Key">@r.Title</option> }</select>
+        </div>
+        <div class="col-md-3"><button class="btn btn-sm btn-primary w-100" @onclick="InviteAsync"><i class="bi bi-person-plus ms-1"></i>افزودن</button></div>
+    </div>
+</section>
+
+<section class="panel mt-3">
+    <h3 class="h6">استودیوهایی که عضو آن هستم</h3>
+    @foreach (var ms in _memberships)
+    {
+        <div class="mb-3">
+            <div><strong>@ms.OwnerName</strong> <span class="sy-role">@StudioRoles.Title(ms.Role)</span></div>
+            @if (_broadcasts.TryGetValue(ms.OwnerUserId, out var list) && list.Count > 0)
+            {
+                @foreach (var b in list)
+                {
+                    <div class="sy-dest">
+                        <div class="flex-fill"><strong>@b.Title</strong><small>@b.Status</small></div>
+                        <a class="btn btn-sm btn-primary" href="@(ms.Role == StudioRoles.Host ? $"/studio/{Uri.EscapeDataString(b.Id)}?owner={ms.OwnerUserId}" : $"/studio/{Uri.EscapeDataString(b.Id)}/console?owner={ms.OwnerUserId}")">ورود</a>
+                    </div>
+                }
+            }
+            else { <small class="text-secondary">پخش فعالی برای نمایش نیست.</small> }
+        </div>
+    }
+    @if (_memberships.Count == 0) { <p class="text-secondary mb-0">در تیم هیچ استودیویی عضو نیستید.</p> }
+</section>
+
+@code {
+    private sealed record Bc(string Id, string Title, string Status);
+
+    private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
+    private IReadOnlyList<TeamMemberRow> _members = [];
+    private IReadOnlyList<TeamMembership> _memberships = [];
+    private readonly Dictionary<Guid, List<Bc>> _broadcasts = [];
+    private Guid _uid;
+    private string _mobile = "", _role = StudioRoles.Moderator;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _uid = await User.UserIdAsync() ?? Guid.Empty;
+        if (_uid == Guid.Empty) return;
+        await ReloadAsync();
+        _memberships = await TeamSvc.MembershipsAsync(_uid);
+        foreach (var ms in _memberships)
+        {
+            try
+            {
+                var ctx = await Access.ResolveAsync(ms.OwnerUserId);
+                if (ctx is null) continue;
+                var r = await ctx.Api.GetAsync("/api/v1/youtube/broadcasts");
+                if (r.IsSuccessStatusCode)
+                    _broadcasts[ms.OwnerUserId] = (await r.Content.ReadFromJsonAsync<List<Bc>>(_json) ?? []).Where(b => !string.Equals(b.Status, "complete", StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+            catch { }
+        }
+    }
+
+    private async Task ReloadAsync() => _members = await TeamSvc.ListMembersAsync(_uid);
+
+    private async Task InviteAsync()
+    {
+        _error = null;
+        var r = await TeamSvc.InviteAsync(_uid, _mobile, _role);
+        if (!r.Success) { _error = r.Error; return; }
+        _mobile = ""; await ReloadAsync();
+    }
+
+    private async Task ChangeRoleAsync(TeamMemberRow m, ChangeEventArgs e)
+    {
+        var r = await TeamSvc.ChangeRoleAsync(_uid, m.Id, e.Value?.ToString() ?? "");
+        if (!r.Success) _error = r.Error;
+        await ReloadAsync();
+    }
+
+    private async Task RemoveAsync(TeamMemberRow m) { await TeamSvc.RemoveAsync(_uid, m.Id); await ReloadAsync(); }
+}

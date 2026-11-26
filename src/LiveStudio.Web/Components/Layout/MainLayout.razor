@@ -1,0 +1,114 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject CurrentUser User
+@inject ISubscriptionService Subscriptions
+@inject ITicketService Tickets
+@inject IContentService Content
+@inject NavigationManager Navigation
+
+<div class="app-shell @(RequiresSubscription && _sub.IsActive ? "studio-focus" : "")">
+    <aside class="sidebar @(_menuOpen ? "open" : "")">
+        <a class="brand" href="/panel">
+            <span class="brand-icon"><i class="bi bi-broadcast-pin"></i></span>
+            <span><strong>LiveStudio</strong><small>LIVE CONTROL CENTER</small></span>
+        </a>
+        <div class="nav-caption">فضای کاری</div>
+        <nav class="nav flex-column app-nav" @onclick="() => _menuOpen = false">
+            <NavLink class="nav-link" href="panel" Match="NavLinkMatch.All"><i class="bi bi-grid-1x2-fill"></i> داشبورد</NavLink>
+            <NavLink class="nav-link" href="studio"><i class="bi bi-broadcast"></i> استودیوی پخش زنده</NavLink>
+            <NavLink class="nav-link" href="creator"><i class="bi bi-camera-reels"></i> استودیوی تولید محتوا</NavLink>
+            <NavLink class="nav-link" href="media-box"><i class="bi bi-collection-play"></i> Media Box</NavLink>
+        </nav>
+        <div class="nav-caption mt-3">حساب کاربری</div>
+        <nav class="nav flex-column app-nav" @onclick="() => _menuOpen = false">
+            <NavLink class="nav-link" href="panel/subscription"><i class="bi bi-gem"></i> اشتراک و پرداخت</NavLink>
+            <NavLink class="nav-link" href="panel/team"><i class="bi bi-people"></i> تیم و نقش‌ها</NavLink>
+            <NavLink class="nav-link" href="panel/stats"><i class="bi bi-bar-chart-line"></i> آمار پخش</NavLink>
+            <NavLink class="nav-link" href="panel/tickets"><i class="bi bi-life-preserver"></i> تیکت‌ها @if (_answeredTickets > 0) { <span class="nav-badge">@_answeredTickets</span> }</NavLink>
+            <NavLink class="nav-link" href="panel/settings"><i class="bi bi-gear"></i> تنظیمات</NavLink>
+            <NavLink class="nav-link" href="diagnostics"><i class="bi bi-clipboard2-pulse"></i> عیب‌یابی سیستم</NavLink>
+        </nav>
+        <div class="sidebar-sub @(_sub.IsActive ? "" : "expired")">
+            <div class="sub-top"><span><i class="bi bi-gem"></i> @_sub.PlanName</span><strong>@(_sub.IsActive ? $"{_sub.DaysLeft} روز" : "منقضی")</strong></div>
+            <div class="sub-bar"><span style="width:@(_sub.IsActive ? _sub.Percent : 0)%"></span></div>
+            <a href="/panel/subscription">@(_sub.IsActive ? "تمدید اشتراک" : "خرید اشتراک")</a>
+        </div>
+    </aside>
+    <div class="sidebar-scrim @(_menuOpen ? "open" : "")" @onclick="() => _menuOpen = false"></div>
+
+    <main class="main-area">
+        <div class="user-strip">
+            <button class="strip-menu d-lg-none" aria-label="منو" @onclick="() => _menuOpen = !_menuOpen"><i class="bi bi-list"></i></button>
+            <a class="strip-home" href="/"><i class="bi bi-house"></i> صفحه اصلی سایت</a>
+            <span class="strip-spacer"></span>
+            <span class="sub-chip @(_sub.IsActive ? (_sub.DaysLeft <= 5 ? "warn" : "ok") : "bad")"><i class="bi bi-gem"></i>@(_sub.IsActive ? $"{_sub.DaysLeft} روز تا پایان اشتراک" : "اشتراک فعال ندارید")</span>
+            <div class="strip-user"><span class="avatar">@Fa.Initials(_name)</span><span class="strip-name">@_name</span></div>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="Logout"><i class="bi bi-box-arrow-left ms-1"></i>خروج</button>
+        </div>
+
+        @foreach (var a in _announcements.Where(x => !_dismissed.Contains(x.Id)).Take(2))
+        {
+            <div class="announce announce-@a.Level">
+                <i class="bi bi-megaphone"></i><div><strong>@a.Title</strong>@if (!string.IsNullOrWhiteSpace(a.Body)) { <span>@a.Body</span> }</div>
+                <button aria-label="بستن" @onclick="() => _dismissed.Add(a.Id)"><i class="bi bi-x-lg"></i></button>
+            </div>
+        }
+
+        @if (RequiresSubscription && !_sub.IsActive)
+        {
+            <section class="panel locked-panel">
+                <div class="empty-icon"><i class="bi bi-lock-fill"></i></div>
+                <h3>برای استفاده از استودیو اشتراک فعال لازم است</h3>
+                <p>اشتراک شما @(_sub.EndsAt is null ? "هنوز فعال نشده" : "در " + Fa.Date(_sub.EndsAt) + " به پایان رسیده") است. با تمدید اشتراک بلافاصله به همه ابزارها دسترسی خواهید داشت.</p>
+                <a class="btn btn-primary" href="/panel/subscription"><i class="bi bi-gem ms-1"></i>مشاهده طرح‌ها و تمدید</a>
+            </section>
+        }
+        else
+        {
+            @Body
+        }
+        <footer class="app-footer"><span>LiveStudio</span><span>مدیریت حرفه‌ای پخش زنده یوتیوب</span></footer>
+    </main>
+</div>
+
+@code {
+    private SubscriptionInfo _sub = SubscriptionInfo.None;
+    private string _name = string.Empty;
+    private int _answeredTickets;
+    private bool _menuOpen;
+    private IReadOnlyList<Announcement> _announcements = [];
+    private readonly HashSet<Guid> _dismissed = [];
+
+    private bool RequiresSubscription
+    {
+        get
+        {
+            var path = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].TrimEnd('/').ToLowerInvariant();
+            return path == "studio" || path.StartsWith("studio/") || path == "creator";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var id = await User.UserIdAsync();
+        _name = await User.NameAsync();
+        if (id is null) return;
+        _sub = await Subscriptions.GetCurrentAsync(id.Value);
+        _answeredTickets = await Tickets.CountOpenAsync(id.Value);
+        _announcements = await Content.GetAnnouncementsAsync(true);
+    }
+
+    private async void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        try { await InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }); } catch (ObjectDisposedException) { }
+    }
+
+    private void Logout() => Navigation.NavigateTo("/auth/logout", forceLoad: true);
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

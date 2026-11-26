@@ -1,0 +1,73 @@
+@inject IJSRuntime JS
+
+<div>
+    <div class="ls-inspector-title"><div><small>GRAPHICS</small><h4>بنر، تیکر و تایمر</h4></div><i class="bi bi-card-heading"></i></div>
+    @if (!string.IsNullOrEmpty(_error)) { <small class="text-warning d-block mb-2">@_error</small> }
+    <div class="ls-element-color-title">قالب‌های آماده</div>
+    <div class="sy-tpl">
+        @foreach (var t in Templates)
+        {
+            <button type="button" @onclick="() => TemplateAsync(t.Key)"><i class="bi @t.Icon"></i>@t.Label</button>
+        }
+    </div>
+    <small class="text-secondary d-block mt-1">اعمال قالب، چیدمان فعلی را روی آنتن جایگزین می‌کند.</small>
+
+    <div class="ls-element-color-title mt-3">بنر و Lower third</div>
+    <input class="form-control form-control-sm" placeholder="عنوان / نام" @bind="_title" @bind:event="oninput" />
+    <input class="form-control form-control-sm mt-2" placeholder="زیرعنوان (اختیاری)" @bind="_subtitle" @bind:event="oninput" />
+    @foreach (var b in Banners)
+    {
+        <div class="sy-dest mt-2">
+            <div class="flex-fill"><strong>@b.Label</strong>@if (Active.Contains(b.Key)) { <small style="direction:rtl;text-align:right;color:#6fe8bd">روی آنتن</small> }</div>
+            <button class="btn btn-sm btn-primary" @onclick="() => BannerAsync(b.Key, true)"><i class="bi bi-eye"></i></button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="() => BannerAsync(b.Key, false)"><i class="bi bi-eye-slash"></i></button>
+        </div>
+    }
+
+    <div class="ls-element-color-title mt-3">تایمر شمارش معکوس</div>
+    <div class="d-flex gap-1 align-items-center">
+        <input type="number" min="5" class="form-control form-control-sm" style="max-width:110px" @bind="_seconds" />
+        <span class="text-secondary" style="font-size:11px">ثانیه</span>
+    </div>
+    <div class="d-flex gap-1 mt-2">
+        <button class="btn btn-sm btn-primary flex-fill" @onclick='() => CountdownAsync("countdown.start")'><i class="bi bi-play-fill"></i> شروع</button>
+        <button class="btn btn-sm btn-outline-secondary flex-fill" @onclick='() => CountdownAsync("countdown.pause")'><i class="bi bi-pause-fill"></i></button>
+        <button class="btn btn-sm btn-outline-secondary flex-fill" @onclick='() => CountdownAsync("countdown.reset")'><i class="bi bi-arrow-counterclockwise"></i></button>
+    </div>
+    <small class="text-secondary d-block mt-1">تایمر باید در صحنه‌ی میزبان وجود داشته باشد (قالب «به‌زودی شروع می‌شود»).</small>
+</div>
+
+@code {
+    private sealed record Opt(string Key, string Label, string Icon = "");
+    private static readonly Opt[] Templates =
+    [
+        new("interview", "مصاحبه", "bi-people"), new("news", "خبری", "bi-newspaper"), new("presentation", "ارائه", "bi-easel"),
+        new("gaming", "گیمینگ", "bi-controller"), new("podcast", "پادکست", "bi-mic"), new("starting", "به‌زودی شروع می‌شود", "bi-hourglass-split")
+    ];
+    private static readonly Opt[] Banners =
+    [
+        new("lt-classic", "زیرنویس کلاسیک"), new("lt-glass", "زیرنویس شیشه‌ای"), new("lt-bar", "زیرنویس نواری"), new("lt-minimal", "زیرنویس مینیمال"),
+        new("subscribe", "لایک و سابسکرایب"), new("welcome", "خوش‌آمدگویی"), new("qa", "پرسش و پاسخ"), new("achievement", "دستاورد"),
+        new("breaking", "خبر فوری"), new("ticker", "تیکر خبری")
+    ];
+
+    /// <summary>Banner keys currently on air (reported by the host studio).</summary>
+    [Parameter] public IReadOnlyCollection<string> Active { get; set; } = [];
+
+    private string _title = "", _subtitle = "";
+    private string? _error;
+    private int _seconds = 300;
+
+    private async Task Send(string cmd, object args)
+    {
+        _error = null;
+        try { await JS.InvokeVoidAsync("lsTeam.send", cmd, args); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private Task TemplateAsync(string key) => Send("template.apply", new { key });
+    private Task BannerAsync(string key, bool on) => on
+        ? Send("banner.on", new { key, title = string.IsNullOrWhiteSpace(_title) ? null : _title, subtitle = string.IsNullOrWhiteSpace(_subtitle) ? null : _subtitle, text = string.IsNullOrWhiteSpace(_title) ? null : _title })
+        : Send("banner.off", new { key });
+    private Task CountdownAsync(string cmd) => Send(cmd, new { seconds = _seconds });
+}

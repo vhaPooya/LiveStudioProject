@@ -1,0 +1,861 @@
+@implements IAsyncDisposable
+@using System.Globalization
+@inject IJSRuntime JS
+@inject CurrentUser CurrentUserSvc
+@inject IUserPresetService PresetSvc
+
+<div class="ls-composer-shell">
+    <div class="ls-composer-layout @(InspectorVisible ? "" : "no-inspector")">
+        <div class="ls-composer-monitor-wrap">
+            <div class="ls-composer-monitor-head">
+                <span><i class="bi bi-circle-fill"></i> PROGRAM COMPOSITOR PREVIEW · 16:9 · 30 FPS</span>
+                <div class="ls-quick-tools">
+                    <button type="button" class="@(ColorOpen ? "active" : "")" title="اصلاح رنگ و نور روی تصویر دوربین" @onclick="ToggleColorPanelAsync"><i class="bi bi-palette"></i><span>رنگ و نور</span></button>
+                    <button type="button" class="@(TpVisible ? "active" : "")" title="نمایش یا پنهان‌کردن تله‌پرومپتر روی تصویر" @onclick="ToggleTpVisibleAsync"><i class="bi bi-card-text"></i><span>تله‌پرومپتر</span></button>
+                    <button type="button" class="@(InspectorVisible ? "active" : "")" title="نمایش یا پنهان‌کردن پنل تنظیمات" @onclick="ToggleInspectorAsync"><i class="bi @(InspectorVisible ? "bi-layout-sidebar-inset-reverse" : "bi-layout-sidebar-reverse")"></i><span>@(InspectorVisible ? "پنهان‌کردن تنظیمات" : "نمایش تنظیمات")</span></button>
+                </div>
+            </div>
+            <div class="ls-composer-monitor">
+                <video id="@SourceVideoId" class="ls-source-video" autoplay playsinline muted></video>
+                <canvas id="@CanvasId" class="ls-composer-canvas"></canvas>
+                <div class="ls-selection-box"></div>
+                <div class="ls-composer-empty" id="@(Mode == "live" ? "cameraPlaceholder" : "creatorPlaceholder")"><i class="bi bi-camera-video"></i><strong>تصویر استودیو در انتظار دوربین</strong><small>پس از فعال‌سازی دوربین، تصویر واقعی در همین مانیتور نمایش داده می‌شود.</small></div>
+                @StageOverlay
+                @if (Mode == "creator") { <div class="creator-live-tag" id="creatorRecTag" hidden><span></span> در حال ضبط</div> }
+
+                @if (ColorOpen)
+                {
+                    <div class="ls-float-panel ls-color-float @(ColorMin ? "min" : "")">
+                        <div class="ls-float-head">
+                            <strong><i class="bi bi-palette"></i> اصلاح رنگ و نور</strong>
+                            <span>
+                                <button type="button" class="@(CompareOn ? "active" : "")" title="مقایسه با تصویر اصلی (بدون اصلاح)" @onclick="ToggleCompareAsync"><i class="bi bi-circle-half"></i></button>
+                                <button type="button" title="@(ColorMin ? "باز کردن" : "کوچک‌کردن")" @onclick="() => ColorMin = !ColorMin"><i class="bi @(ColorMin ? "bi-chevron-down" : "bi-dash-lg")"></i></button>
+                                <button type="button" title="پنهان‌کردن پنل (تنظیمات حفظ می‌شود)" @onclick="CloseColorPanelAsync"><i class="bi bi-x-lg"></i></button>
+                            </span>
+                        </div>
+                        @if (!ColorMin)
+                        {
+                            <div class="ls-float-body">
+                                <div class="ls-preset-chips">
+                                    <button type="button" @onclick='() => ColorPresetAsync("natural")'>طبیعی</button>
+                                    <button type="button" @onclick='() => ColorPresetAsync("bright")'>روشن چهره</button>
+                                    <button type="button" @onclick='() => ColorPresetAsync("warm")'>گرم</button>
+                                    <button type="button" @onclick='() => ColorPresetAsync("cool")'>سرد</button>
+                                    <button type="button" @onclick='() => ColorPresetAsync("cinematic")'>سینمایی</button>
+                                    <button type="button" @onclick='() => ColorPresetAsync("vivid")'>پررنگ</button>
+                                    <button type="button" @onclick='() => ColorPresetAsync("mono")'>سیاه‌وسفید</button>
+                                </div>
+                                @Slider("روشنایی", "brightness", Camera.Brightness, 25, 200, "%")
+                                @Slider("کنتراست", "contrast", Camera.Contrast, 25, 220, "%")
+                                @Slider("اشباع رنگ", "saturation", Camera.Saturation, 0, 250, "%")
+                                @Slider("نوردهی", "exposure", Camera.Exposure, -100, 100, "")
+                                @Slider("فام رنگ", "hue", Camera.Hue, -180, 180, "°")
+                                <div class="ls-float-foot">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick='() => ColorPresetAsync("natural")'><i class="bi bi-arrow-counterclockwise ms-1"></i>بازنشانی</button>
+                                    <button type="button" class="btn btn-sm btn-primary" @onclick="CloseColorPanelAsync"><i class="bi bi-check2 ms-1"></i>تأیید و پنهان‌کردن</button>
+                                </div>
+                                <small class="ls-float-note">@(string.IsNullOrWhiteSpace(FloatNotice) ? "اصلاح‌ها هم‌زمان روی Preview، Program و ضبط اعمال می‌شوند و با پنهان‌کردن پنل حفظ می‌مانند." : FloatNotice)</small>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (TpVisible)
+                {
+                    <div class="ls-tp-overlay pos-@(Tp.Position)" style="--tp-alpha:@F(Tp.Opacity / 100d);--tp-size:@F(Tp.Size);--tp-line:@F(Tp.LineHeight)">
+                        <div class="ls-tp-bar">
+                            <span class="ls-tp-title"><i class="bi bi-card-text"></i> تله‌پرومپتر · فقط برای مجری</span>
+                            <span class="ls-tp-actions">
+                                <button type="button" data-tp-toggle class="@(TpRunning ? "active" : "")" title="شروع / توقف (Space)" @onclick="ToggleTpRunAsync"><i class="bi @(TpRunning ? "bi-pause-fill" : "bi-play-fill")"></i></button>
+                                <button type="button" data-tp-reset title="بازگشت به ابتدای متن (Home)" @onclick="ResetTpAsync"><i class="bi bi-skip-start-fill"></i></button>
+                                <button type="button" data-tp-slower title="کندتر (↓)" @onclick="() => ChangeTpSpeedAsync(-5)"><i class="bi bi-dash-lg"></i></button>
+                                <b class="ls-tp-speed">@F(Tp.Speed)</b>
+                                <button type="button" data-tp-faster title="سریع‌تر (↑)" @onclick="() => ChangeTpSpeedAsync(5)"><i class="bi bi-plus-lg"></i></button>
+                                <button type="button" title="پنهان‌کردن تله‌پرومپتر" @onclick="HideTpAsync"><i class="bi bi-x-lg"></i></button>
+                            </span>
+                        </div>
+                        <div class="ls-tp-body">
+                            <div class="ls-tp-scroll" id="@TpScrollId">
+                                <div class="ls-tp-pad top"></div>
+                                <div class="ls-tp-text @(Tp.Mirror ? "mirror" : "")">@Tp.Text</div>
+                                <div class="ls-tp-pad bottom"></div>
+                            </div>
+                            <div class="ls-tp-guide"></div>
+                        </div>
+                    </div>
+                }
+            </div>
+            @BottomBar
+            <div class="ls-composer-hint"><i class="bi bi-arrows-move"></i> برای جابه‌جایی لوگو، متن یا هر المان، آن را مستقیماً روی تصویر بکشید. تله‌پرومپتر و پنل رنگ فقط روی مانیتور شما هستند و در خروجی دیده نمی‌شوند (اصلاح رنگ روی تصویر دوربین اعمال می‌شود).</div>
+            @if (!string.IsNullOrWhiteSpace(InitError)) { <div class="notice notice-error mt-2">@InitError</div> }
+            @if (Mode == "live")
+            {
+                <div class="ls-program-monitor @(ProgramDirty ? "dirty" : "")">
+                    <div class="ls-program-monitor-head">
+                        <span><i class="bi bi-broadcast"></i> PROGRAM · خروجی آماده ارسال @if (ProgramDirty) { <em class="ls-dirty-badge">تغییرات Preview هنوز به Program نرسیده است</em> }</span>
+                        <span class="ls-program-tools">
+                            <label class="ls-check-row ls-autotake" title="هر تغییر در Preview بلافاصله به Program منتقل می‌شود"><input type="checkbox" checked="@AutoTake" @onchange="ToggleAutoTakeAsync" /> TAKE خودکار</label>
+                            <button class="btn btn-sm @(ProgramDirty ? "btn-warning" : "btn-primary")" @onclick="TakeProgramAsync"><i class="bi bi-arrow-left-right ms-1"></i>ارسال Preview به Program (TAKE)</button>
+                            <button class="btn btn-sm btn-outline-secondary" title="نمایش یا پنهان‌کردن مانیتور Program" @onclick="() => ProgramVisible = !ProgramVisible"><i class="bi @(ProgramVisible ? "bi-eye-slash" : "bi-eye")"></i></button>
+                        </span>
+                    </div>
+                    <div class="ls-program-screen" hidden="@(!ProgramVisible)"><canvas id="liveProgramCanvas" class="ls-program-canvas"></canvas></div>
+                    <small>فقط تصویر Program به LiveKit منتشر می‌شود؛ تغییرات دوربین (رنگ و نور) فوری اعمال می‌شود، اما تغییرات لایه‌ها و پس‌زمینه تا زمان TAKE به Program منتقل نمی‌شوند.</small>
+                </div>
+            }
+        </div>
+
+        <aside class="ls-composer-inspector sy-panel @(InspectorVisible ? "" : "closed")">
+            @if (InspectorVisible && IsBuiltinTab && ActiveTab == "layers")
+            {
+                <div class="ls-inspector-title"><div><small>SCENE COMPOSITION</small><h4>لایه‌ها و رسانه</h4></div><span class="ls-count">@Layers.Count</span></div>
+                @if (!string.IsNullOrWhiteSpace(PanelNotice)) { <div class="notice @(PanelNoticeError ? "notice-error" : "notice-success") ls-mini-notice">@PanelNotice</div> }
+
+                <Collapsible Id='@SecId("background")' Title="پس‌زمینه استودیو" Icon="bi-image">
+                    <MediaPicker Assets="Assets" AllowNone="true" NoneLabel="بدون پس‌زمینه" SelectedId="@SelectedBackgroundId" OnSelect="SetBackgroundAsync" />
+                    @if (!string.IsNullOrWhiteSpace(SelectedBackgroundId))
+                    {
+                        <button class="btn btn-sm btn-outline-danger w-100 mt-2" @onclick="RemoveBackgroundAsync"><i class="bi bi-x-circle ms-1"></i>حذف پس‌زمینه</button>
+                    }
+                    <small class="ls-inspector-description d-block mt-2">با انتخاب یک رسانه، به‌عنوان پس‌زمینه (تصویر یا ویدئوی حلقه‌ای) اعمال می‌شود و دوربین به حالت PIP می‌رود. گزینه «بدون پس‌زمینه» یا دکمه حذف، آن را برمی‌دارد.</small>
+                </Collapsible>
+
+                <Collapsible Id='@SecId("addmedia")' Title="افزودن لوگو / تصویر / ویدئو" Icon="bi-plus-square">
+                    <MediaPicker Assets="Assets" SelectedId="@SelectedAssetId" OnSelect="SelectAssetAsync" />
+                    <button class="btn btn-sm btn-primary w-100 mt-2" @onclick="AddSelectedAssetAsync" disabled="@string.IsNullOrWhiteSpace(SelectedAssetId)"><i class="bi bi-plus-lg ms-1"></i>افزودن رسانه انتخاب‌شده به صحنه</button>
+                    <div class="ls-add-grid">
+                        <label class="btn btn-sm btn-outline-secondary media-upload-button mb-0"><i class="bi bi-cloud-arrow-up"></i> فایل جدید<InputFile OnChange="UploadAsync" disabled="@UploadBusy" accept="image/*,video/*" /></label>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="RefreshAssetsAsync"><i class="bi bi-arrow-repeat"></i> بروزرسانی</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick='() => AddEmptyFrameAsync("image")'><i class="bi bi-bounding-box"></i> قاب لوگو</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick='() => AddEmptyFrameAsync("video")'><i class="bi bi-film"></i> قاب ویدئو</button>
+                    </div>
+                    <small class="ls-inspector-description d-block mt-2">قاب خالی را می‌توان بعداً از «تنظیم المان» با انتخاب رسانه پر کرد.</small>
+                </Collapsible>
+
+                <Collapsible Id='@SecId("addgraphics")' Title="متن و گرافیک آماده" Icon="bi-type">
+                    <div class="ls-add-grid">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick='() => AddLayerAsync("text")'><i class="bi bi-type"></i> متن</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick='() => AddLayerAsync("lowerThird")'><i class="bi bi-card-heading"></i> زیرنویس</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick='() => AddLayerAsync("breaking")'><i class="bi bi-megaphone"></i> خبر فوری</button>
+                    </div>
+                </Collapsible>
+
+                <Collapsible Id='@SecId("templates")' Title="قالب‌های آماده" Icon="bi-layout-wtf" DefaultCollapsed="true">
+                    <div class="sy-tpl">
+                        @foreach (var t in TemplateOpts)
+                        {
+                            <button type="button" @onclick="() => ApplyTemplateAsync(t.Key)"><i class="bi @t.Icon"></i>@t.Label</button>
+                        }
+                    </div>
+                    <small class="ls-inspector-description d-block mt-2">قالب، چیدمان «Preview» را جایگزین می‌کند؛ پس از بررسی آن را «Take» کنید.</small>
+                </Collapsible>
+
+                <Collapsible Id='@SecId("banners")' Title="بنر، Lower Third و تیکر" Icon="bi-card-heading">
+                    <div class="ls-add-grid">
+                        @foreach (var b in BannerOpts)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => AddBannerAsync(b.Key)'>@b.Label</button>
+                        }
+                    </div>
+                    <small class="ls-inspector-description d-block mt-2">بنر پس از افزودن در «تنظیم المان» ویرایش و با دکمه «نمایش/پنهان» روی آنتن می‌رود.</small>
+                </Collapsible>
+
+                <Collapsible Id='@SecId("layerlist")' Title="ترتیب لایه‌ها" Icon="bi-list-ol">
+                    @if (Layers.Count == 0)
+                    {
+                        <div class="ls-layer-empty">هنوز المانی اضافه نشده است. یک رسانه را انتخاب و به صحنه اضافه کنید.</div>
+                    }
+                    @foreach (var layer in Layers.OrderByDescending(x => x.Z))
+                    {
+                        <div class="ls-layer-row @(layer.Id == SelectedLayerId ? "selected" : "")">
+                            <button class="ls-layer-select" @onclick="() => SelectLayerAsync(layer.Id)"><i class="bi @(layer.Type == "text" ? "bi-type" : layer.Type == "video" ? "bi-film" : layer.Type == "breaking" ? "bi-megaphone" : layer.Type == "ticker" ? "bi-text-left" : layer.Type == "countdown" ? "bi-stopwatch" : layer.Type == "comment" ? "bi-chat-quote" : "bi-image")"></i><span>@LayerName(layer)</span></button>
+                            <button class="ls-layer-icon" title="بالا بردن لایه" @onclick="() => MoveLayerAsync(layer.Id, 1)"><i class="bi bi-chevron-up"></i></button>
+                            <button class="ls-layer-icon" title="پایین بردن لایه" @onclick="() => MoveLayerAsync(layer.Id, -1)"><i class="bi bi-chevron-down"></i></button>
+                            <button class="ls-layer-icon" title="نمایش / مخفی" @onclick="() => ToggleLayerAsync(layer)"><i class="bi @(layer.Visible ? "bi-eye" : "bi-eye-slash")"></i></button>
+                            <button class="ls-layer-icon danger" title="حذف" @onclick="() => DeleteLayerAsync(layer.Id)"><i class="bi bi-trash3"></i></button>
+                        </div>
+                    }
+                </Collapsible>
+            }
+            else if (InspectorVisible && IsBuiltinTab && ActiveTab == "camera")
+            {
+                <div class="ls-inspector-title"><div><small>CAMERA IMAGE PROCESSING</small><h4>تصویر دوربین</h4></div><i class="bi bi-camera-video"></i></div>
+                <p class="ls-inspector-description">تغییرات مستقیماً روی تصویر ورودی دوربین اعمال و در خروجی ترکیبی استفاده می‌شوند.</p>
+
+                <Collapsible Id='@SecId("layout")' Title="چیدمان دوربین" Icon="bi-aspect-ratio">
+                    <select class="form-select form-select-sm" value="@CameraFrame.Layout" @onchange="UpdateCameraLayoutAsync"><option value="full">تمام‌صفحه</option><option value="pip">تصویر در تصویر (PIP)</option><option value="left">نیمه چپ</option><option value="right">نیمه راست</option></select>
+                </Collapsible>
+
+                <Collapsible Id='@SecId("colorlaunch")' Title="رنگ و نور" Icon="bi-palette">
+                    <p class="ls-inspector-description">پنل اصلاح رنگ مستقیماً روی تصویر دوربین باز می‌شود تا نتیجه را هم‌زمان ببینید؛ پس از اتمام می‌توانید آن را پنهان کنید (تنظیمات حفظ می‌شوند).</p>
+                    <button class="btn btn-sm @(ColorOpen ? "btn-outline-secondary" : "btn-primary") w-100" @onclick="ToggleColorPanelAsync"><i class="bi bi-palette ms-1"></i>@(ColorOpen ? "پنهان‌کردن پنل رنگ و نور" : "باز کردن پنل رنگ و نور روی تصویر")</button>
+                </Collapsible>
+
+                <Collapsible Id='@SecId("chroma")' Title="حذف پس‌زمینه سبز (Chroma Key)" Icon="bi-badge-hd">
+                    <label class="ls-check-row"><input type="checkbox" checked="@Camera.ChromaEnabled" @onchange="ToggleChromaAsync" /> فعال‌سازی Chroma Key</label>
+                    <div class="@(Camera.ChromaEnabled ? "" : "ls-dim")">
+                        <label class="form-label mt-2">رنگ قابل حذف</label><input type="color" class="form-control form-control-color" value="@Camera.ChromaColor" @onchange='e => UpdateCameraAsync("chromaColor", e)' />
+                        @Slider("دامنه حذف رنگ", "chromaTolerance", Camera.ChromaTolerance, 10, 220, "")
+                        @Slider("نرمی لبه", "chromaSoftness", Camera.ChromaSoftness, 0, 120, "")
+                    </div>
+                    <button class="btn btn-sm btn-outline-secondary w-100 mt-2" @onclick="ResetChromaAsync"><i class="bi bi-arrow-counterclockwise ms-1"></i>بازنشانی Chroma Key</button>
+                </Collapsible>
+            }
+            else if (InspectorVisible && IsBuiltinTab && ActiveTab == "prompter")
+            {
+                <div class="ls-inspector-title"><div><small>TELEPROMPTER</small><h4>تله‌پرومپتر</h4></div><i class="bi bi-card-text"></i></div>
+                @if (!TpVisible)
+                {
+                    <p class="ls-inspector-description">تله‌پرومپتر به‌صورت پیش‌فرض پنهان است و فضایی اشغال نمی‌کند. برای استفاده آن را فعال کنید؛ متن روی تصویر شما و فقط برای مجری نمایش داده می‌شود و در خروجی پخش یا ضبط دیده نمی‌شود.</p>
+                    <button class="btn btn-primary w-100" @onclick="ToggleTpVisibleAsync"><i class="bi bi-card-text ms-1"></i>فعال‌سازی تله‌پرومپتر روی تصویر</button>
+                }
+                else
+                {
+                    <div class="ls-tp-runbar">
+                        <button class="btn btn-sm @(TpRunning ? "btn-warning" : "btn-primary")" @onclick="ToggleTpRunAsync"><i class="bi @(TpRunning ? "bi-pause-fill" : "bi-play-fill") ms-1"></i>@(TpRunning ? "توقف" : "شروع")</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="ResetTpAsync"><i class="bi bi-skip-start-fill ms-1"></i>ابتدای متن</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="HideTpAsync"><i class="bi bi-eye-slash ms-1"></i>پنهان</button>
+                    </div>
+                    <Collapsible Id='@SecId("tptext")' Title="متن سناریو" Icon="bi-pencil-square">
+                        <textarea class="form-control form-control-sm ls-tp-input" rows="8" value="@Tp.Text" @oninput="TpTextChangedAsync" placeholder="متن اجرا یا سناریو را وارد کنید..." spellcheck="false"></textarea>
+                        <div class="ls-tp-text-actions">
+                            <span>@WordCount کلمه</span>
+                            <button class="btn btn-link btn-sm p-0" @onclick="ClearTpTextAsync">پاک‌کردن</button>
+                        </div>
+                    </Collapsible>
+                    <Collapsible Id='@SecId("tpstyle")' Title="سرعت و ظاهر" Icon="bi-sliders">
+                        @TpSlider("سرعت حرکت", "speed", Tp.Speed, 10, 150, 5, "")
+                        @TpSlider("اندازه نوشته", "size", Tp.Size, 1.6, 7, 0.2, "")
+                        @TpSlider("تیرگی پس‌زمینه", "opacity", Tp.Opacity, 0, 95, 5, "%")
+                        <label class="form-label mt-2">محل نمایش روی تصویر</label>
+                        <select class="form-select form-select-sm" value="@Tp.Position" @onchange="TpPositionChangedAsync"><option value="bottom">پایین (نزدیک دوربین)</option><option value="middle">وسط</option><option value="top">بالا (نزدیک لنز)</option><option value="full">تمام‌صفحه</option></select>
+                        <label class="ls-check-row mt-2"><input type="checkbox" checked="@Tp.Mirror" @onchange="TpMirrorChangedAsync" /> نمایش آینه‌ای (برای شیشه تله‌پرومپتر)</label>
+                    </Collapsible>
+                    <small class="ls-inspector-description d-block mt-2">میانبرها: Space شروع/توقف · ↑ ↓ سرعت · Home ابتدای متن</small>
+                }
+            }
+            else if (InspectorVisible && IsBuiltinTab && ActiveTab == "scenes")
+            {
+                <div class="ls-inspector-title"><div><small>SCENE LIBRARY</small><h4>مدیریت و خروجی صحنه</h4></div><i class="bi bi-collection-play"></i></div>
+                <p class="ls-inspector-description">چیدمان، لایه‌ها، تنظیمات دوربین و پس‌زمینه را به‌صورت یک صحنه ذخیره کنید و در اجرای بعدی دوباره بارگذاری کنید.</p>
+                <label class="form-label">نام صحنه</label>
+                <input class="form-control form-control-sm" @bind="SceneName" placeholder="مثلاً گفت‌وگوی خبری" />
+                <button class="btn btn-sm btn-primary w-100 mt-2" @onclick="SaveSceneAsync"><i class="bi bi-save ms-1"></i>ذخیره صحنه فعلی</button>
+                <div class="ls-inspector-divider"></div>
+                <label class="form-label">صحنه‌های ذخیره‌شده</label>
+                <select class="form-select form-select-sm" @bind="SelectedSceneId">
+                    <option value="">انتخاب صحنه...</option>
+                    @foreach (var scene in SavedScenes) { <option value="@scene.Id">@scene.Name</option> }
+                </select>
+                <button class="btn btn-sm btn-outline-primary w-100 mt-2" @onclick="LoadSceneAsync" disabled="@string.IsNullOrWhiteSpace(SelectedSceneId)"><i class="bi bi-folder2-open ms-1"></i>بارگذاری صحنه انتخاب‌شده</button>
+                <div class="ls-inspector-divider"></div>
+                <button class="btn btn-sm btn-outline-secondary w-100" @onclick="ExportSceneAsync"><i class="bi bi-file-earmark-arrow-down ms-1"></i>خروجی فایل JSON صحنه</button>
+                <button class="btn btn-sm btn-outline-secondary w-100 mt-2" @onclick="ImportSceneAsync"><i class="bi bi-file-earmark-arrow-up ms-1"></i>ورود صحنه از فایل JSON</button>
+                <button class="btn btn-sm btn-outline-secondary w-100 mt-2" @onclick="SnapshotAsync"><i class="bi bi-camera ms-1"></i>ذخیره تصویر PNG از Preview</button>
+                <small class="text-muted d-block mt-2">فایل JSON برای انتقال پروژه بین مرورگرها یا دستگاه‌هاست. رسانه‌های اصلی باید در Media Box مقصد نیز موجود باشند.</small>
+            }
+            else if (InspectorVisible && ActiveTab == "element")
+            {
+                <div class="ls-inspector-title"><div><small>ELEMENT PROPERTIES</small><h4>تنظیم المان انتخاب‌شده</h4></div><i class="bi bi-magic"></i></div>
+                @if (SelectedLayer is null)
+                {
+                    <div class="ls-layer-empty">برای تنظیم رسانه، اندازه، رنگ و انیمیشن، ابتدا یک لایه را در تصویر یا فهرست لایه‌ها انتخاب کنید.</div>
+                }
+                else
+                {
+                    <div class="ls-selected-name"><i class="bi bi-bounding-box"></i> @LayerName(SelectedLayer)</div>
+                    @if (!string.IsNullOrWhiteSpace(PanelNotice)) { <div class="notice @(PanelNoticeError ? "notice-error" : "notice-success") ls-mini-notice">@PanelNotice</div> }
+
+                    @if (IsMediaLayer(SelectedLayer))
+                    {
+                        <Collapsible Id='@SecId("elmedia")' Title="رسانه این کادر (لوگو / ویدئو)" Icon="bi-images">
+                            <MediaPicker Assets="Assets" AllowNone="true" NoneLabel="کادر خالی" SelectedId="@SelectedLayer.AssetId" OnSelect="SetLayerAssetAsync" />
+                            <div class="ls-add-grid">
+                                <label class="btn btn-sm btn-outline-secondary media-upload-button mb-0"><i class="bi bi-cloud-arrow-up"></i> فایل جدید<InputFile OnChange="UploadAndApplyAsync" disabled="@UploadBusy" accept="image/*,video/*" /></label>
+                                <button class="btn btn-sm btn-outline-secondary" disabled="@string.IsNullOrWhiteSpace(SelectedLayer.AssetId)" @onclick="() => SetLayerAssetAsync(SelectedLayer.AssetId)"><i class="bi bi-aspect-ratio"></i> هم‌اندازه با رسانه</button>
+                            </div>
+                            <label class="form-label mt-2">نحوه نمایش در کادر</label>
+                            <select class="form-select form-select-sm" value="@(SelectedLayer.Fit ?? "contain")" @onchange='e => UpdateLayerAsync("fit", e)'>
+                                <option value="contain">کامل و بدون برش</option><option value="cover">پر کردن کادر (با برش)</option>
+                            </select>
+                            @Slider("شفافیت", "opacity", SelectedLayer.Opacity, 5, 100, "%", "layer")
+                        </Collapsible>
+                    }
+                    @if (SelectedLayer.Type is "text" or "breaking" or "lowerThird" or "ticker" or "countdown" or "comment")
+                    {
+                        <Collapsible Id='@SecId("eltext")' Title="متن و ظاهر" Icon="bi-type">
+                            <label class="form-label">@(SelectedLayer.Type == "ticker" ? "تیترها (هر خط یک تیتر)" : SelectedLayer.Type == "countdown" ? "عنوان شمارش معکوس" : "متن روی تصویر")</label><textarea class="form-control form-control-sm" rows="@(SelectedLayer.Type == "ticker" ? 4 : 2)" value="@SelectedLayer.Text" @oninput='e => UpdateLayerAsync("text", e)'></textarea>
+                            @if (SelectedLayer.Type == "ticker")
+                            {
+                                <label class="form-label mt-2">برچسب (مثلاً خبر)</label><input class="form-control form-control-sm" value="@SelectedLayer.Tag" @oninput='e => UpdateLayerAsync("tag", e)' />
+                                <label class="form-label mt-2">جهت حرکت</label>
+                                <select class="form-select form-select-sm" value="@(SelectedLayer.TickerDir ?? "left")" @onchange='e => UpdateLayerAsync("tickerDir", e)'><option value="left">به چپ</option><option value="right">به راست</option></select>
+                                @Slider("سرعت", "tickerSpeed", SelectedLayer.TickerSpeed, 30, 600, "", "layer")
+                            }
+                            @if (SelectedLayer.Type == "countdown")
+                            {
+                                <label class="form-label mt-2">متن پایان</label><input class="form-control form-control-sm" value="@SelectedLayer.DoneText" @oninput='e => UpdateLayerAsync("doneText", e)' />
+                                <label class="form-label mt-2">مدت (ثانیه)</label><input type="number" min="1" class="form-control form-control-sm" value="@Inv(SelectedLayer.CdTotal)" @onchange='e => UpdateLayerAsync("cdTotal", e)' />
+                                <div class="d-flex gap-1 mt-2">
+                                    <button class="btn btn-sm btn-primary flex-fill" @onclick='() => CountdownAsync("startCountdown")'><i class="bi bi-play-fill"></i> شروع</button>
+                                    <button class="btn btn-sm btn-outline-secondary flex-fill" @onclick='() => CountdownAsync("pauseCountdown")'><i class="bi bi-pause-fill"></i> توقف</button>
+                                    <button class="btn btn-sm btn-outline-secondary flex-fill" @onclick='() => CountdownAsync("resetCountdown")'><i class="bi bi-arrow-counterclockwise"></i> ریست</button>
+                                </div>
+                                <label class="ls-check-row mt-2"><input type="checkbox" checked="@SelectedLayer.CdAutoHide" @onchange='e => UpdateLayerAsync("cdAutoHide", e)' /> پنهان شدن خودکار پس از پایان</label>
+                            }
+                            @if (SelectedLayer.Type == "lowerThird")
+                            {
+                                <label class="form-label mt-2">سبک</label>
+                                <select class="form-select form-select-sm" value="@(SelectedLayer.LtStyle ?? "classic")" @onchange='e => UpdateLayerAsync("ltStyle", e)'><option value="classic">کلاسیک</option><option value="glass">شیشه‌ای</option><option value="bar">نوار رنگی</option><option value="minimal">مینیمال</option></select>
+                                <label class="form-label mt-2">عنوان</label><input class="form-control form-control-sm" value="@SelectedLayer.Title" @oninput='e => UpdateLayerAsync("title", e)' />
+                                <label class="form-label mt-2">زیرعنوان</label><input class="form-control form-control-sm" value="@SelectedLayer.Subtitle" @oninput='e => UpdateLayerAsync("subtitle", e)' />
+                            }
+                            <label class="form-label mt-2">رنگ نوشته</label><input type="color" class="form-control form-control-color" value="@SelectedLayer.TextColor" @onchange='e => UpdateLayerAsync("textColor", e)' />
+                            <label class="form-label mt-2">رنگ زمینه</label><input type="color" class="form-control form-control-color" value="@SafeColor(SelectedLayer.BackgroundColor)" @onchange='e => UpdateLayerAsync("backgroundColor", e)' />
+                            @if (SelectedLayer.Type is "lowerThird" or "ticker" or "countdown" or "comment")
+                            {
+                                <label class="form-label mt-2">رنگ تأکید</label><input type="color" class="form-control form-control-color" value="@SafeColor(SelectedLayer.AccentColor)" @onchange='e => UpdateLayerAsync("accentColor", e)' />
+                            }
+                            @Slider("اندازه فونت", "fontSize", SelectedLayer.FontSize, 12, 120, "px", "layer")
+                        </Collapsible>
+                    }
+                    <Collapsible Id='@SecId("elcolor")' Title="اصلاح رنگ اختصاصی این المان" Icon="bi-palette" DefaultCollapsed="true">
+                        @Slider("روشنایی المان", "color.brightness", SelectedLayer.Color.Brightness, 0, 220, "%", "layer")
+                        @Slider("کنتراست المان", "color.contrast", SelectedLayer.Color.Contrast, 0, 220, "%", "layer")
+                        @Slider("اشباع رنگ المان", "color.saturation", SelectedLayer.Color.Saturation, 0, 250, "%", "layer")
+                        @Slider("نوردهی المان", "color.exposure", SelectedLayer.Color.Exposure, -100, 100, "", "layer")
+                        @Slider("تغییر فام رنگ", "color.hue", SelectedLayer.Color.Hue, -180, 180, "°", "layer")
+                    </Collapsible>
+                    <Collapsible Id='@SecId("elposition")' Title="موقعیت و اندازه" Icon="bi-arrows-move">
+                        <div class="ls-two-fields">
+                            <div><label class="form-label">موقعیت افقی</label><input class="form-range" type="range" min="0" max="@(100-SelectedLayer.W)" value="@SelectedLayer.X" @oninput='e => UpdateLayerAsync("x", e)' /></div>
+                            <div><label class="form-label">موقعیت عمودی</label><input class="form-range" type="range" min="0" max="@(100-SelectedLayer.H)" value="@SelectedLayer.Y" @oninput='e => UpdateLayerAsync("y", e)' /></div>
+                            <div><label class="form-label">عرض</label><input class="form-range" type="range" min="2" max="100" value="@SelectedLayer.W" @oninput='e => UpdateLayerAsync("w", e)' /></div>
+                            <div><label class="form-label">ارتفاع</label><input class="form-range" type="range" min="2" max="100" value="@SelectedLayer.H" @oninput='e => UpdateLayerAsync("h", e)' /></div>
+                        </div>
+                    </Collapsible>
+                    <Collapsible Id='@SecId("elanim")' Title="انیمیشن و وضعیت" Icon="bi-stars">
+                        <div class="ls-element-color-title">پریست‌های آماده</div>
+                        <div class="ls-preset-chips">
+                            @foreach (var preset in AnimPresets)
+                            {
+                                <button type="button" @onclick="() => ApplyAnimPresetAsync(preset.Key)">@preset.Label</button>
+                            }
+                        </div>
+                        <div class="btn-row d-flex gap-2 mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary flex-fill" @onclick="ReplayAnimAsync"><i class="bi bi-play-fill ms-1"></i>پخش ورود</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" @onclick="PreviewExitAsync"><i class="bi bi-box-arrow-right ms-1"></i>پخش خروج</button>
+                        </div>
+
+                        <div class="ls-inspector-divider"></div>
+                        <div class="ls-element-color-title">انیمیشن ورود</div>
+                        <select class="form-select form-select-sm" value="@(SelectedLayer.AnimIn ?? "none")" @onchange='e => UpdateLayerAsync("animIn", e)'>
+                            @foreach (var o in AnimInOptions) { <option value="@o.Key">@o.Label</option> }
+                        </select>
+                        @if ((SelectedLayer.AnimIn ?? "none") != "none")
+                        {
+                            <div class="ls-control-slider"><label><span>مدت ورود</span><strong>@Inv(SelectedLayer.AnimInDur) ث</strong></label><input class="form-range" type="range" min="0.1" max="4" step="0.1" value="@Inv(SelectedLayer.AnimInDur)" @oninput='e => UpdateLayerAsync("animInDur", e)' /></div>
+                            <div class="ls-control-slider"><label><span>تأخیر شروع</span><strong>@Inv(SelectedLayer.AnimInDelay) ث</strong></label><input class="form-range" type="range" min="0" max="5" step="0.1" value="@Inv(SelectedLayer.AnimInDelay)" @oninput='e => UpdateLayerAsync("animInDelay", e)' /></div>
+                            <label class="form-label">منحنی حرکت</label>
+                            <select class="form-select form-select-sm" value="@(SelectedLayer.AnimInEase ?? "auto")" @onchange='e => UpdateLayerAsync("animInEase", e)'>
+                                @foreach (var o in AnimEaseOptions) { <option value="@o.Key">@o.Label</option> }
+                            </select>
+                            @if (UsesDistance(SelectedLayer.AnimIn) || UsesDistance(SelectedLayer.AnimOut))
+                            {
+                                <div class="ls-control-slider"><label><span>مسافت حرکت</span><strong>@Inv(SelectedLayer.AnimDistance)٪</strong></label><input class="form-range" type="range" min="2" max="80" step="1" value="@Inv(SelectedLayer.AnimDistance)" @oninput='e => UpdateLayerAsync("animDistance", e)' /></div>
+                            }
+                        }
+
+                        <div class="ls-inspector-divider"></div>
+                        <div class="ls-element-color-title">انیمیشن حلقه (در حین نمایش)</div>
+                        <select class="form-select form-select-sm" value="@(SelectedLayer.AnimLoop ?? "none")" @onchange='e => UpdateLayerAsync("animLoop", e)'>
+                            @foreach (var o in AnimLoopOptions) { <option value="@o.Key">@o.Label</option> }
+                        </select>
+                        @if ((SelectedLayer.AnimLoop ?? "none") != "none")
+                        {
+                            <div class="ls-control-slider"><label><span>سرعت</span><strong>@Inv(SelectedLayer.AnimLoopSpeed)×</strong></label><input class="form-range" type="range" min="0.2" max="3" step="0.1" value="@Inv(SelectedLayer.AnimLoopSpeed)" @oninput='e => UpdateLayerAsync("animLoopSpeed", e)' /></div>
+                            <div class="ls-control-slider"><label><span>شدت</span><strong>@Inv(SelectedLayer.AnimLoopIntensity)٪</strong></label><input class="form-range" type="range" min="10" max="250" step="5" value="@Inv(SelectedLayer.AnimLoopIntensity)" @oninput='e => UpdateLayerAsync("animLoopIntensity", e)' /></div>
+                            @if (SelectedLayer.AnimLoop == "glow")
+                            {
+                                <label class="form-label">رنگ درخشش</label><input type="color" class="form-control form-control-color" value="@SafeColor(SelectedLayer.GlowColor ?? "#ffffff")" @onchange='e => UpdateLayerAsync("glowColor", e)' />
+                            }
+                        }
+
+                        <div class="ls-inspector-divider"></div>
+                        <div class="ls-element-color-title">انیمیشن خروج (هنگام پنهان‌کردن)</div>
+                        <select class="form-select form-select-sm" value="@(SelectedLayer.AnimOut ?? "none")" @onchange='e => UpdateLayerAsync("animOut", e)'>
+                            @foreach (var o in AnimInOptions) { <option value="@o.Key">@o.Label</option> }
+                        </select>
+                        @if ((SelectedLayer.AnimOut ?? "none") != "none")
+                        {
+                            <div class="ls-control-slider"><label><span>مدت خروج</span><strong>@Inv(SelectedLayer.AnimOutDur) ث</strong></label><input class="form-range" type="range" min="0.1" max="3" step="0.1" value="@Inv(SelectedLayer.AnimOutDur)" @oninput='e => UpdateLayerAsync("animOutDur", e)' /></div>
+                        }
+
+                        <div class="ls-inspector-divider"></div>
+                        <div class="ls-element-color-title">پخش پشت‌سرهم (چرخه خودکار نمایش و پنهان‌شدن)</div>
+                        <label class="ls-check-row"><input type="checkbox" checked="@((SelectedLayer.AnimCycle ?? "none") == "repeat")" @onchange="ToggleCycleAsync" /> ورود ← ماندن ← خروج ← مکث، به‌صورت تکرارشونده</label>
+                        @if ((SelectedLayer.AnimCycle ?? "none") == "repeat")
+                        {
+                            <div class="ls-control-slider"><label><span>مدت ماندن روی تصویر</span><strong>@Inv(SelectedLayer.AnimHold) ث</strong></label><input class="form-range" type="range" min="0" max="60" step="0.5" value="@Inv(SelectedLayer.AnimHold)" @oninput='e => UpdateLayerAsync("animHold", e)' /></div>
+                            <div class="ls-control-slider"><label><span>مدت پنهان بودن تا ورود بعدی</span><strong>@Inv(SelectedLayer.AnimGap) ث</strong></label><input class="form-range" type="range" min="0" max="60" step="0.5" value="@Inv(SelectedLayer.AnimGap)" @oninput='e => UpdateLayerAsync("animGap", e)' /></div>
+                            <small class="text-secondary d-block">برای تکرار فقط انیمیشن ورود، مدت ماندن و پنهان‌بودن را صفر بگذارید و خروج را «بدون انیمیشن» انتخاب کنید.</small>
+                        }
+
+                        <div class="ls-inspector-divider"></div>
+                        <div class="ls-element-color-title">پریست‌های من</div>
+                        <div class="d-flex gap-1">
+                            <input class="form-control form-control-sm" placeholder="نام پریست" @bind="PresetName" @bind:event="oninput" />
+                            <button class="btn btn-sm btn-outline-primary" @onclick="SavePresetAsync"><i class="bi bi-bookmark-plus"></i></button>
+                        </div>
+                        <div class="ls-preset-chips mt-2">
+                            @foreach (var pr in MyPresets)
+                            {
+                                <span class="ls-preset-chip"><button type="button" @onclick="() => ApplyMyPresetAsync(pr)">@pr.Name</button><button type="button" class="x" title="حذف" @onclick="() => DeleteMyPresetAsync(pr)"><i class="bi bi-x"></i></button></span>
+                            }
+                            @if (MyPresets.Count == 0) { <small class="text-secondary">هنوز پریستی ذخیره نشده است.</small> }
+                        </div>
+
+                        <div class="ls-inspector-divider"></div>
+                        <div class="ls-two-fields mt-2">
+                            <label class="ls-check-row"><input type="checkbox" checked="@SelectedLayer.Visible" @onchange='e => UpdateLayerAsync("visible", e)' /> نمایش</label>
+                            <label class="ls-check-row"><input type="checkbox" checked="@SelectedLayer.Locked" @onchange='e => UpdateLayerAsync("locked", e)' /> قفل موقعیت</label>
+                        </div>
+                    </Collapsible>
+                    <button class="btn btn-sm btn-outline-danger w-100 mt-3" @onclick="() => DeleteLayerAsync(SelectedLayer.Id)"><i class="bi bi-trash3 ms-1"></i>حذف المان</button>
+                }
+            }
+            @if (ExtraContent is not null)
+            {
+                @foreach (var x in Extras)
+                {
+                    <div class="sy-pane @(InspectorVisible && ActiveTab == x.Key ? "" : "pane-off")" data-pane="@x.Key">@ExtraContent(x.Key)</div>
+                }
+            }
+        </aside>
+
+        <nav class="sy-rail" aria-label="ابزارهای استودیو">
+            <button type="button" class="@RailClass("layers")" @onclick='() => RailClick("layers")'><i class="bi bi-images"></i><span>رسانه و لایه‌ها</span></button>
+            <button type="button" class="@RailClass("element")" @onclick='() => RailClick("element")'><i class="bi bi-sliders2-vertical"></i><span>تنظیم المان</span></button>
+            <button type="button" class="@RailClass("camera")" @onclick='() => RailClick("camera")'><i class="bi bi-camera-video"></i><span>دوربین</span></button>
+            <button type="button" class="@RailClass("prompter")" @onclick='() => RailClick("prompter")'><i class="bi bi-card-text"></i><span>تله‌پرومپتر</span></button>
+            <button type="button" class="@RailClass("scenes")" @onclick='() => RailClick("scenes")'><i class="bi bi-collection"></i><span>صحنه‌ها</span></button>
+            @foreach (var x in Extras)
+            {
+                <button type="button" class="@RailClass(x.Key)" @onclick="() => RailClick(x.Key)"><i class="bi @x.Icon"></i><span>@x.Label</span>@if (x.Badge > 0) { <em class="sy-badge">@x.Badge</em> }</button>
+            }
+        </nav>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string StudioMode { get; set; } = "live";
+    [Parameter, EditorRequired] public string SourceVideoId { get; set; } = "cameraPreview";
+    public sealed record RailExtra(string Key, string Icon, string Label, int Badge = 0);
+    [Parameter] public IReadOnlyList<RailExtra> Extras { get; set; } = [];
+    [Parameter] public RenderFragment<string>? ExtraContent { get; set; }
+    [Parameter] public RenderFragment? BottomBar { get; set; }
+    [Parameter] public RenderFragment? StageOverlay { get; set; }
+    private static readonly string[] BuiltinTabs = ["layers", "element", "camera", "prompter", "scenes"];
+    private bool IsBuiltinTab => BuiltinTabs.Contains(ActiveTab);
+    private string RailClass(string key) => InspectorVisible && ActiveTab == key ? "active" : "";
+    private async Task RailClick(string key)
+    {
+        if (InspectorVisible && ActiveTab == key) { InspectorVisible = false; await PersistAsync("inspector", false); return; }
+        OpenTab(key);
+        await PersistAsync("inspector", true);
+        if (key == "scenes") await Safe(RefreshScenesAsync);
+    }
+    private string Mode => StudioMode == "creator" ? "creator" : "live";
+    private string CanvasId => Mode == "creator" ? "creatorComposerCanvas" : "liveComposerCanvas";
+    private string TpScrollId => $"tpScroll-{Mode}";
+    private string SecId(string name) => $"{Mode}:{name}";
+    private string ActiveTab = "layers";
+    private string? SelectedAssetId, SelectedBackgroundId, SelectedLayerId, SelectedSceneId;
+    private string SceneName = "صحنه جدید";
+    private List<SceneDto> SavedScenes = [];
+    private new List<AssetDto> Assets = [];
+    private List<LayerDto> Layers = [];
+    private CameraDto Camera = new();
+    private CameraFrameDto CameraFrame = new();
+    private DotNetObjectReference<StudioComposerPanel>? DotNetRef;
+    private bool Attached, ProgramDirty, ProgramVisible = true, InspectorVisible = true, AutoTake;
+    private bool ColorOpen, ColorMin, CompareOn;
+    private bool TpVisible, TpRunning;
+    private bool UploadBusy;
+    private TpConfig Tp = new();
+    private string? InitError, PanelNotice, FloatNotice;
+    private bool PanelNoticeError;
+    private LayerDto? SelectedLayer => Layers.FirstOrDefault(x => x.Id == SelectedLayerId);
+    private int WordCount => System.Text.RegularExpressions.Regex.Matches(Tp.Text ?? "", @"\S+").Count;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        DotNetRef = DotNetObjectReference.Create(this);
+        try { await LoadMyPresetsAsync(); StateHasChanged(); } catch (Exception) { }
+        try { Tp = await JS.InvokeAsync<TpConfig>("lsPrompter.load"); } catch (Exception) { }
+        try { InspectorVisible = await JS.InvokeAsync<bool?>("lsUi.get", $"{Mode}:inspector") ?? true; } catch (Exception) { }
+        try { ColorOpen = await JS.InvokeAsync<bool?>("lsUi.get", $"{Mode}:colorpanel") ?? false; } catch (Exception) { }
+        try { AutoTake = Mode == "live" && (await JS.InvokeAsync<bool?>("lsUi.get", "live:autotake") ?? false); } catch (Exception) { }
+        try
+        {
+            var state = await JS.InvokeAsync<ComposerState>("studioCompositor.attach", CanvasId, SourceVideoId, Mode, Mode == "live" ? "liveProgramCanvas" : null);
+            ApplyState(state);
+            await JS.InvokeVoidAsync("studioCompositor.setStateCallback", Mode, DotNetRef);
+            Attached = true;
+        }
+        catch (Exception ex) { InitError = "راه‌اندازی موتور ترکیب تصویر ناموفق بود: " + ex.Message; Console.Error.WriteLine($"Studio compositor init: {ex.Message}"); }
+        await LoadAssetsAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadAssetsAsync()
+    {
+        try { Assets = await JS.InvokeAsync<List<AssetDto>>("studioCompositor.getAssets"); }
+        catch (Exception ex) { Notice("بارگذاری Media Box ناموفق بود: " + ex.Message, true); }
+    }
+
+    private async Task RefreshAssetsAsync()
+    {
+        try { await JS.InvokeVoidAsync("studioCompositor.refreshAssets"); await LoadAssetsAsync(); Notice("کتابخانه رسانه بروزرسانی شد.", false); }
+        catch (Exception ex) { Notice(ex.Message, true); }
+    }
+
+    private void Notice(string message, bool error) { PanelNotice = message; PanelNoticeError = error; }
+    private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    [JSInvokable]
+    public async Task OnComposerChanged(ComposerState state)
+    {
+        ApplyState(state);
+        if (Mode == "live" && AutoTake && state.ProgramDirty)
+        {
+            try { await JS.InvokeVoidAsync("studioCompositor.takeProgram", Mode); } catch (Exception) { }
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task OnPrompterEnded() { TpRunning = false; return InvokeAsync(StateHasChanged); }
+
+    private void ApplyState(ComposerState? s)
+    {
+        if (s is null) return;
+        Layers = s.Layers ?? []; Camera = s.Camera ?? new(); CameraFrame = s.CameraFrame ?? new();
+        if (s.SelectedId is not null && s.SelectedId != SelectedLayerId) { ActiveTab = "element"; InspectorVisible = true; }
+        SelectedLayerId = s.SelectedId; SelectedBackgroundId = s.BackgroundId; ProgramDirty = s.ProgramDirty; CompareOn = s.Compare;
+    }
+
+    private async Task Safe(Func<Task> action)
+    {
+        try { await action(); await AutoTakeCheckAsync(); }
+        catch (Exception ex) { Notice(ex.Message, true); }
+    }
+
+    private async Task AutoTakeCheckAsync()
+    {
+        if (Mode != "live" || !AutoTake) return;
+        var s = await JS.InvokeAsync<ComposerState>("studioCompositor.getState", Mode);
+        if (!s.ProgramDirty) { ApplyState(s); return; }
+        await JS.InvokeVoidAsync("studioCompositor.takeProgram", Mode);
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.getState", Mode));
+    }
+
+    private async Task ToggleAutoTakeAsync(ChangeEventArgs e)
+    {
+        AutoTake = e.Value is true;
+        await PersistAsync("autotake", AutoTake);
+        if (AutoTake) await Safe(() => Task.CompletedTask);
+    }
+
+    private void OpenTab(string tab) { ActiveTab = tab; PanelNotice = null; if (!InspectorVisible) { InspectorVisible = true; } }
+    private async Task RefreshStateAsync() { var s = await JS.InvokeAsync<ComposerState>("studioCompositor.getState", Mode); ApplyState(s); }
+    private async Task OpenScenesAsync() { OpenTab("scenes"); await Safe(RefreshScenesAsync); }
+    private async Task RefreshScenesAsync() => SavedScenes = await JS.InvokeAsync<List<SceneDto>>("studioCompositor.listScenes", Mode);
+    private Task SaveSceneAsync() => Safe(async () => { await JS.InvokeVoidAsync("studioCompositor.saveScene", Mode, SceneName); await RefreshScenesAsync(); });
+    private Task LoadSceneAsync() => Safe(async () => { if (string.IsNullOrWhiteSpace(SelectedSceneId)) return; ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.loadScene", Mode, SelectedSceneId)); });
+    private Task ExportSceneAsync() => Safe(async () => await JS.InvokeVoidAsync("studioCompositor.exportScene", Mode));
+    private Task ImportSceneAsync() => Safe(async () => { var s = await JS.InvokeAsync<ComposerState?>("studioCompositor.importScene", Mode); if (s is not null) ApplyState(s); await RefreshScenesAsync(); });
+    private Task SnapshotAsync() => Safe(async () => await JS.InvokeVoidAsync("studioCompositor.snapshot", CanvasId, Mode));
+
+    private Task SelectLayerAsync(string id) => Safe(async () => { ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.selectLayer", Mode, id)); ActiveTab = "element"; InspectorVisible = true; });
+    private Task SelectAssetAsync(string? id) { SelectedAssetId = id; return Task.CompletedTask; }
+
+    private Task AddSelectedAssetAsync() => Safe(async () =>
+    {
+        if (string.IsNullOrWhiteSpace(SelectedAssetId)) { Notice("ابتدا یک رسانه را انتخاب کنید.", true); return; }
+        var asset = Assets.FirstOrDefault(a => a.Id == SelectedAssetId);
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.addLayer", Mode, SelectedAssetId, asset?.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true ? "video" : "image"));
+        ActiveTab = "element"; InspectorVisible = true; Notice("رسانه به صحنه اضافه شد؛ آن را روی تصویر جابه‌جا یا از اینجا تنظیم کنید.", false);
+    });
+    private Task AddEmptyFrameAsync(string kind) => Safe(async () =>
+    {
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.addEmptyFrame", Mode, kind));
+        ActiveTab = "element"; InspectorVisible = true; Notice("قاب خالی ساخته شد؛ رسانه موردنظر را از فهرست زیر انتخاب کنید.", false);
+    });
+    private Task AddLayerAsync(string type) => Safe(async () => { ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.addLayer", Mode, (string?)null, type)); ActiveTab = "element"; InspectorVisible = true; });
+    private Task SetLayerAssetAsync(string? assetId) => Safe(async () =>
+    {
+        if (SelectedLayerId is null) return;
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.setLayerAsset", Mode, SelectedLayerId, assetId));
+        Notice(string.IsNullOrWhiteSpace(assetId) ? "رسانه از کادر برداشته شد." : "رسانه کادر تغییر کرد.", false);
+    });
+    private Task SetBackgroundAsync(string? assetId) => Safe(async () =>
+    {
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.setBackground", Mode, string.IsNullOrWhiteSpace(assetId) ? null : assetId));
+        if (string.IsNullOrWhiteSpace(assetId)) Notice("پس‌زمینه حذف شد.", false);
+        else if (CameraFrame.Layout == "full" && !Camera.ChromaEnabled)
+            Notice("پس‌زمینه اعمال شد، اما چون دوربین تمام‌صفحه است زیر تصویر آن پنهان می‌ماند. برای دیدنش «حذف پس‌زمینه سبز» را روشن کنید یا در «چیدمان دوربین» حالت دیگری انتخاب کنید.", false);
+        else Notice("پس‌زمینه اعمال شد.", false);
+    });
+    private Task RemoveBackgroundAsync() => SetBackgroundAsync(null);
+    private Task TakeProgramAsync() => Safe(async () => { await JS.InvokeVoidAsync("studioCompositor.takeProgram", Mode); await RefreshStateAsync(); });
+    private Task UpdateCameraLayoutAsync(ChangeEventArgs e) => Safe(async () => ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.updateCameraFrame", Mode, "layout", e.Value?.ToString() ?? "full")));
+    private Task DeleteLayerAsync(string id) => Safe(async () => ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.deleteLayer", Mode, id)));
+    private Task MoveLayerAsync(string id, int direction) => Safe(async () => ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.moveLayer", Mode, id, direction)));
+    private Task ToggleLayerAsync(LayerDto l) => Safe(async () => { await JS.InvokeAsync<ComposerState>("studioCompositor.updateLayer", Mode, l.Id, "visible", !l.Visible); await RefreshStateAsync(); });
+    private Task UpdateCameraAsync(string key, ChangeEventArgs e) => Safe(async () => ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.updateCamera", Mode, key, e.Value?.ToString() ?? "")));
+    private Task ToggleChromaAsync(ChangeEventArgs e) => Safe(async () => ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.updateCamera", Mode, "chromaEnabled", e.Value)));
+    private Task ResetChromaAsync() => Safe(async () =>
+    {
+        foreach (var kv in new Dictionary<string, object> { { "chromaEnabled", false }, { "chromaColor", "#00ff00" }, { "chromaTolerance", 90 }, { "chromaSoftness", 35 } })
+            await JS.InvokeAsync<ComposerState>("studioCompositor.updateCamera", Mode, kv.Key, kv.Value);
+        await RefreshStateAsync();
+    });
+    private Task UpdateLayerAsync(string key, ChangeEventArgs e) => Safe(async () =>
+    {
+        if (SelectedLayerId is null) return;
+        await JS.InvokeAsync<ComposerState>("studioCompositor.updateLayer", Mode, SelectedLayerId, key, e.Value);
+        await RefreshStateAsync();
+    });
+
+    // ---------- Banners / countdown / personal presets ----------
+    private static readonly Opt[] BannerOpts =
+    [
+        new("lt-classic", "زیرنویس کلاسیک"), new("lt-glass", "زیرنویس شیشه‌ای"), new("lt-bar", "زیرنویس نواری"), new("lt-minimal", "زیرنویس مینیمال"),
+        new("subscribe", "لایک و سابسکرایب"), new("welcome", "خوش‌آمدگویی"), new("qa", "پرسش و پاسخ"), new("achievement", "دستاورد"),
+        new("breaking", "خبر فوری"), new("ticker", "تیکر خبری"), new("countdown", "شمارش معکوس")
+    ];
+    private sealed record Tpl(string Key, string Label, string Icon);
+    private static readonly Tpl[] TemplateOpts =
+    [
+        new("interview", "مصاحبه", "bi-people"), new("news", "خبری", "bi-newspaper"), new("presentation", "ارائه", "bi-easel"),
+        new("gaming", "گیمینگ", "bi-controller"), new("podcast", "پادکست", "bi-mic"), new("starting", "به‌زودی شروع می‌شود", "bi-hourglass-split")
+    ];
+    private Task ApplyTemplateAsync(string key) => Safe(async () =>
+    {
+        var ok = await JS.InvokeAsync<bool>("confirm", "چیدمان فعلی (لایه‌ها و پس‌زمینه) با این قالب جایگزین می‌شود. ادامه می‌دهید؟");
+        if (!ok) return;
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.applyTemplate", Mode, key, false));
+    });
+    private string PresetName = "";
+    private List<PresetRow> MyPresets = [];
+    private Guid? _uid;
+    private async Task<Guid> UidAsync() => _uid ??= await CurrentUserSvc.UserIdAsync() ?? Guid.Empty;
+    private async Task LoadMyPresetsAsync() { var u = await UidAsync(); if (u != Guid.Empty) MyPresets = (await PresetSvc.ListAsync(u, "anim")).ToList(); }
+    private Task AddBannerAsync(string key) => Safe(async () =>
+    {
+        if (key == "countdown") { ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.addLayer", Mode, (string?)null, "countdown")); }
+        else if (key == "ticker" || key == "breaking") { ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.addBanner", Mode, key, (object?)null)); }
+        else ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.addBanner", Mode, key, (object?)null));
+        ActiveTab = "element"; InspectorVisible = true;
+    });
+    private Task CountdownAsync(string fn) => Safe(async () =>
+    {
+        if (SelectedLayerId is null) return;
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor." + fn, Mode, SelectedLayerId, SelectedLayer?.CdTotal ?? 300));
+    });
+    private Task SavePresetAsync() => Safe(async () =>
+    {
+        if (SelectedLayerId is null) return;
+        var u = await UidAsync();
+        var json = await JS.InvokeAsync<string?>("studioCompositor.getAnimConfig", Mode, SelectedLayerId);
+        if (string.IsNullOrWhiteSpace(json)) return;
+        var r = await PresetSvc.SaveAsync(u, "anim", PresetName, json);
+        if (!r.Success) throw new InvalidOperationException(r.Error ?? "ذخیره پریست ممکن نشد.");
+        PresetName = ""; await LoadMyPresetsAsync();
+    });
+    private Task ApplyMyPresetAsync(PresetRow p) => Safe(async () =>
+    {
+        if (SelectedLayerId is null) return;
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.applyAnimConfig", Mode, SelectedLayerId, p.Json));
+    });
+    private Task DeleteMyPresetAsync(PresetRow p) => Safe(async () =>
+    {
+        var r = await PresetSvc.DeleteAsync(await UidAsync(), p.Id);
+        if (!r.Success) throw new InvalidOperationException(r.Error ?? "حذف ممکن نشد.");
+        await LoadMyPresetsAsync();
+    });
+
+    // ---------- Animation presets ----------
+    private sealed record Opt(string Key, string Label);
+    private static readonly Opt[] AnimPresets =
+    [
+        new("none", "بدون انیمیشن"), new("clean-fade", "محو ساده"), new("logo-pop", "لوگو: پاپ و ضربان"), new("logo-cinematic", "لوگو: سینمایی"),
+        new("logo-neon", "لوگو: نئون"), new("logo-bounce", "لوگو: پرش"), new("logo-elastic", "لوگو: کشسان"), new("logo-spin", "لوگو: چرخشی"),
+        new("logo-wipe", "لوگو: پرده‌ای"), new("logo-blink", "لوگو: چشمک روشن/خاموش"), new("logo-fade-loop", "لوگو: محو و آشکار"), new("logo-auto-cycle", "لوگو: ظاهر/پنهان خودکار"), new("logo-reveal-cycle", "لوگو: پرده‌ای تکرارشونده"), new("news-slide", "اسلاید خبری"), new("corner-tag", "برچسب گوشه"), new("attention", "جلب توجه")
+    ];
+    private static readonly Opt[] AnimInOptions =
+    [
+        new("none", "بدون انیمیشن"), new("fade", "محو شدن (Fade)"), new("slide-left", "ورود از چپ"), new("slide-right", "ورود از راست"), new("slide-up", "ورود از پایین"), new("slide-down", "ورود از بالا"),
+        new("zoom-in", "بزرگ‌شدن (Zoom In)"), new("zoom-out", "کوچک‌شدن (Zoom Out)"), new("pop", "پاپ (Pop)"), new("elastic", "کشسان (Elastic)"), new("bounce-in", "پرش ورودی"), new("drop", "سقوط و جهش"),
+        new("spin-in", "چرخش"), new("flip-x", "چرخش افقی (Flip)"), new("flip-y", "چرخش عمودی (Flip)"), new("blur-in", "محو و تیز شدن (Blur)"),
+        new("reveal-left", "پرده از چپ"), new("reveal-right", "پرده از راست"), new("reveal-up", "پرده از بالا"), new("reveal-down", "پرده از پایین"), new("glitch", "گلیچ")
+    ];
+    private static readonly Opt[] AnimLoopOptions =
+    [
+        new("none", "بدون حلقه"), new("pulse", "ضربان ملایم (Pulse)"), new("heartbeat", "ضربان قلب"), new("breathe", "تنفس"), new("blink", "چشمک (روشن/خاموش)"), new("fade-pulse", "محو و آشکار (Fade)"), new("float", "شناور (Float)"), new("drift", "رانش آرام"),
+        new("bounce", "پرش (Bounce)"), new("sway", "تاب ملایم"), new("wobble", "لرزش نرم"), new("shake", "تکان دوره‌ای"), new("spin", "چرخش پیوسته"), new("flicker", "سوسو"), new("glow", "درخشش (Glow)")
+    ];
+    private static readonly Opt[] AnimEaseOptions =
+    [
+        new("auto", "خودکار (متناسب با پریست)"), new("linear", "خطی"), new("easeOut", "نرم در پایان"), new("easeIn", "نرم در شروع"), new("easeInOut", "نرم در دو سر"),
+        new("back", "برگشت جزئی (Overshoot)"), new("elastic", "کشسان"), new("bounce", "جهشی")
+    ];
+    private static bool UsesDistance(string? k) => k is "slide-left" or "slide-right" or "slide-up" or "slide-down" or "bounce-in" or "drop";
+    private static string Inv(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    private Task ApplyAnimPresetAsync(string key) => Safe(async () =>
+    {
+        if (SelectedLayerId is null) return;
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.applyAnimPreset", Mode, SelectedLayerId, key));
+    });
+    private Task ToggleCycleAsync(ChangeEventArgs e) => Safe(async () =>
+    {
+        var on = e.Value is true || string.Equals(e.Value?.ToString(), "true", StringComparison.OrdinalIgnoreCase);
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.updateLayer", Mode, SelectedLayerId, "animCycle", on ? "repeat" : "none"));
+    });
+    private Task ReplayAnimAsync() => Safe(async () =>
+    {
+        if (SelectedLayerId is null) return;
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.replayAnimation", Mode, SelectedLayerId));
+    });
+    private Task PreviewExitAsync() => Safe(async () =>
+    {
+        if (SelectedLayerId is null) return;
+        ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.previewExit", Mode, SelectedLayerId));
+    });
+
+    // ---------- Color correction ----------
+    private async Task ToggleColorPanelAsync() { if (ColorOpen) await CloseColorPanelAsync(); else { ColorOpen = true; ColorMin = false; await PersistAsync("colorpanel", true); } }
+    private async Task CloseColorPanelAsync()
+    {
+        if (CompareOn) await ToggleCompareAsync();
+        ColorOpen = false; FloatNotice = null; await PersistAsync("colorpanel", false);
+    }
+    private async Task ToggleCompareAsync()
+    {
+        try
+        {
+            var result = await JS.InvokeAsync<bool>("studioCompositor.setCompare", Mode, !CompareOn);
+            if (!CompareOn && !result) { FloatNotice = "در زمان ضبط، مقایسه فعال نمی‌شود تا ویدئو بدون اصلاح ضبط نشود."; return; }
+            CompareOn = result; FloatNotice = result ? "در حال نمایش تصویر اصلی بدون اصلاح رنگ؛ برای بازگشت دوباره بزنید." : null;
+        }
+        catch (Exception ex) { FloatNotice = ex.Message; }
+    }
+    private Task ColorPresetAsync(string name) => Safe(async () => ApplyState(await JS.InvokeAsync<ComposerState>("studioCompositor.applyColorPreset", Mode, name)));
+
+    // ---------- Panels ----------
+    private async Task ToggleInspectorAsync() { InspectorVisible = !InspectorVisible; await PersistAsync("inspector", InspectorVisible); }
+    private async Task PersistAsync(string key, bool value) { try { await JS.InvokeVoidAsync("lsUi.set", $"{Mode}:{key}", value); } catch (Exception) { } }
+
+    // ---------- Teleprompter ----------
+    private async Task ToggleTpVisibleAsync() { if (TpVisible) await HideTpAsync(); else { TpVisible = true; await JS.InvokeVoidAsync("lsPrompter.bindKeys"); } }
+    private async Task HideTpAsync() { TpVisible = false; TpRunning = false; try { await JS.InvokeVoidAsync("lsPrompter.stop", TpScrollId); } catch (Exception) { } }
+    private async Task ToggleTpRunAsync()
+    {
+        try
+        {
+            if (TpRunning) { await JS.InvokeVoidAsync("lsPrompter.stop", TpScrollId); TpRunning = false; return; }
+            if (string.IsNullOrWhiteSpace(Tp.Text)) { Notice("ابتدا متن سناریو را وارد کنید.", true); return; }
+            TpRunning = await JS.InvokeAsync<bool>("lsPrompter.start", TpScrollId, Tp.Speed, DotNetRef);
+        }
+        catch (Exception ex) { Notice(ex.Message, true); }
+    }
+    private async Task ResetTpAsync() { TpRunning = false; try { await JS.InvokeVoidAsync("lsPrompter.reset", TpScrollId); } catch (Exception) { } }
+    private async Task ChangeTpSpeedAsync(double delta) { Tp.Speed = Math.Clamp(Tp.Speed + delta, 10, 150); await SaveTpAsync(); }
+    private async Task SaveTpAsync() { try { await JS.InvokeVoidAsync("lsPrompter.save", Tp); await JS.InvokeVoidAsync("lsPrompter.setSpeed", TpScrollId, Tp.Speed); } catch (Exception) { } }
+    private async Task TpTextChangedAsync(ChangeEventArgs e) { Tp.Text = e.Value?.ToString() ?? ""; await SaveTpAsync(); }
+    private async Task ClearTpTextAsync() { Tp.Text = ""; await ResetTpAsync(); await SaveTpAsync(); }
+    private async Task TpPositionChangedAsync(ChangeEventArgs e) { Tp.Position = e.Value?.ToString() ?? "bottom"; await SaveTpAsync(); }
+    private async Task TpMirrorChangedAsync(ChangeEventArgs e) { Tp.Mirror = e.Value is true; await SaveTpAsync(); }
+    private async Task TpSliderChangedAsync(string key, ChangeEventArgs e)
+    {
+        if (!double.TryParse(e.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) return;
+        switch (key) { case "speed": Tp.Speed = v; break; case "size": Tp.Size = v; break; case "opacity": Tp.Opacity = v; break; }
+        await SaveTpAsync();
+    }
+
+    // ---------- Upload ----------
+    private async Task<AssetDto?> UploadCoreAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File; if (file is null) return null;
+        var type = file.ContentType;
+        if (string.IsNullOrWhiteSpace(type))
+        {
+            var ext = Path.GetExtension(file.Name).ToLowerInvariant();
+            type = ext switch { ".mp4" or ".m4v" => "video/mp4", ".webm" => "video/webm", ".mov" => "video/quicktime", ".png" => "image/png", ".jpg" or ".jpeg" => "image/jpeg", ".gif" => "image/gif", ".webp" => "image/webp", ".svg" => "image/svg+xml", _ => "" };
+        }
+        var isVideo = type.StartsWith("video/", StringComparison.OrdinalIgnoreCase);
+        var isImage = type.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+        if (!isVideo && !isImage) { Notice("فقط فایل تصویر یا ویدئو پشتیبانی می‌شود.", true); return null; }
+        UploadBusy = true;
+        try
+        {
+            await using var stream = file.OpenReadStream(maxAllowedSize: 300L * 1024 * 1024);
+            using var reference = new DotNetStreamReference(stream);
+            var dto = await JS.InvokeAsync<AssetDto>("mediaBox.add", file.Name, type, isVideo ? "stinger" : "overlay", file.Size, reference);
+            await JS.InvokeVoidAsync("studioCompositor.refreshAssets");
+            await LoadAssetsAsync();
+            return Assets.FirstOrDefault(a => a.Id == dto.Id) ?? dto;
+        }
+        catch (Exception ex) { Notice("افزودن فایل ناموفق بود: " + ex.Message, true); return null; }
+        finally { UploadBusy = false; }
+    }
+    private async Task UploadAsync(InputFileChangeEventArgs e)
+    {
+        var asset = await UploadCoreAsync(e);
+        if (asset is not null) { SelectedAssetId = asset.Id; Notice("فایل به Media Box اضافه شد؛ برای استفاده، «افزودن رسانه انتخاب‌شده به صحنه» را بزنید.", false); }
+    }
+    private async Task UploadAndApplyAsync(InputFileChangeEventArgs e)
+    {
+        var asset = await UploadCoreAsync(e);
+        if (asset is not null) await SetLayerAssetAsync(asset.Id);
+    }
+
+    // ---------- UI helpers ----------
+    private RenderFragment Slider(string label, string key, double value, double min, double max, string suffix, string scope = "camera") => @<div class="ls-control-slider"><label>@label <strong>@(value)@suffix</strong></label><input class="form-range" type="range" min="@min" max="@max" step="1" value="@value" @oninput='e => SliderChangedAsync(key, e, scope)' /></div>;
+    private RenderFragment TpSlider(string label, string key, double value, double min, double max, double step, string suffix) => @<div class="ls-control-slider"><label>@label <strong>@F(value)@suffix</strong></label><input class="form-range" type="range" min="@F(min)" max="@F(max)" step="@F(step)" value="@F(value)" @oninput='e => TpSliderChangedAsync(key, e)' /></div>;
+    private Task SliderChangedAsync(string key, ChangeEventArgs e, string scope) => Safe(async () =>
+    {
+        if (scope == "layer" && SelectedLayerId is not null) { await JS.InvokeAsync<ComposerState>("studioCompositor.updateLayer", Mode, SelectedLayerId, key, e.Value); await RefreshStateAsync(); }
+        else if (scope == "camera") await UpdateCameraAsync(key, e);
+    });
+    private static bool IsMediaLayer(LayerDto l) => l.Type is "image" or "video";
+    private string LayerName(LayerDto l)
+    {
+        if (IsMediaLayer(l))
+        {
+            var asset = string.IsNullOrWhiteSpace(l.AssetId) ? null : Assets.FirstOrDefault(a => a.Id == l.AssetId);
+            if (asset is not null) return (l.Type == "video" ? "ویدئو · " : "تصویر · ") + asset.Name;
+            return l.Type == "video" ? "قاب ویدئو (خالی)" : "قاب لوگو (خالی)";
+        }
+        return l.Type switch { "text" => string.IsNullOrWhiteSpace(l.Text) ? "متن جدید" : l.Text!, "lowerThird" => "Lower Third", "breaking" => "Breaking News", "ticker" => "تیکر خبری", "countdown" => "تایمر شمارش معکوس", "comment" => "کامنت روی تصویر", _ => "المان" };
+    }
+    private static string SafeColor(string? value) => !string.IsNullOrWhiteSpace(value) && value.StartsWith('#') && value.Length == 7 ? value : "#10233b";
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("lsPrompter.stop", TpScrollId); } catch (Exception) { }
+        try { if (Attached) await JS.InvokeVoidAsync("studioCompositor.stop", Mode); } catch (JSDisconnectedException) { } catch (InvalidOperationException) { }
+        DotNetRef?.Dispose();
+    }
+
+    public sealed class SceneDto { public string Id { get; set; } = ""; public string Name { get; set; } = ""; public string UpdatedAt { get; set; } = ""; }
+    public sealed class AssetDto { public string Id { get; set; } = ""; public string Name { get; set; } = ""; public string MimeType { get; set; } = ""; public string Category { get; set; } = ""; public string Url { get; set; } = ""; }
+    public sealed class ComposerState { public string? BackgroundId { get; set; } public CameraDto? Camera { get; set; } public CameraFrameDto? CameraFrame { get; set; } public List<LayerDto> Layers { get; set; } = []; public string? SelectedId { get; set; } public int ProgramLayers { get; set; } public bool ProgramDirty { get; set; } public bool Compare { get; set; } }
+    public sealed class CameraDto { public double Brightness { get; set; } = 100; public double Contrast { get; set; } = 100; public double Saturation { get; set; } = 100; public double Exposure { get; set; } public double Hue { get; set; } public bool ChromaEnabled { get; set; } public string ChromaColor { get; set; } = "#00ff00"; public double ChromaTolerance { get; set; } = 90; public double ChromaSoftness { get; set; } = 35; }
+    public sealed class CameraFrameDto { public string Layout { get; set; } = "full"; public double X { get; set; } public double Y { get; set; } public double W { get; set; } = 100; public double H { get; set; } = 100; }
+    public sealed class ColorDto { public double Brightness { get; set; } = 100; public double Contrast { get; set; } = 100; public double Saturation { get; set; } = 100; public double Exposure { get; set; } public double Hue { get; set; } }
+    public sealed class LayerDto { public string Id { get; set; } = ""; public string Type { get; set; } = "image"; public string? AssetId { get; set; } public string? Fit { get; set; } public double Opacity { get; set; } = 100; public string? Text { get; set; } public string? Title { get; set; } public string? Subtitle { get; set; } public string? Animation { get; set; } public string? AnimIn { get; set; } public double AnimInDur { get; set; } = 0.8; public double AnimInDelay { get; set; } public string? AnimInEase { get; set; } public double AnimDistance { get; set; } = 15; public string? AnimLoop { get; set; } public double AnimLoopSpeed { get; set; } = 1; public double AnimLoopIntensity { get; set; } = 100; public string? AnimOut { get; set; } public double AnimOutDur { get; set; } = 0.5; public string? GlowColor { get; set; } public string? AnimCycle { get; set; } public string? Tag { get; set; } public string? TickerDir { get; set; } public double TickerSpeed { get; set; } = 140; public string? DoneText { get; set; } public double CdTotal { get; set; } = 300; public bool CdAutoHide { get; set; } public string? LtStyle { get; set; } public string? AccentColor { get; set; } public string? Author { get; set; } public string? Amount { get; set; } public double AnimHold { get; set; } = 4; public double AnimGap { get; set; } = 2; public string? TextColor { get; set; } public string? BackgroundColor { get; set; } public double X { get; set; } public double Y { get; set; } public double W { get; set; } public double H { get; set; } public double Z { get; set; } public double FontSize { get; set; } = 48; public bool Visible { get; set; } = true; public bool Locked { get; set; } public ColorDto Color { get; set; } = new(); }
+    public sealed class TpConfig { public string Text { get; set; } = ""; public double Speed { get; set; } = 45; public double Size { get; set; } = 3.4; public double Opacity { get; set; } = 72; public string Position { get; set; } = "bottom"; public bool Mirror { get; set; } public double LineHeight { get; set; } = 1.7; }
+}

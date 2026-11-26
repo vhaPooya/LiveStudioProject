@@ -1,0 +1,177 @@
+@page "/admin/users/{Id:guid}"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:users")]
+@inject CurrentUser Me
+@inject IUserService Users
+@inject ISubscriptionService Subscriptions
+@inject IPaymentService Payments
+@inject ITicketService Tickets
+@inject IGoogleOAuthTenantService OAuth
+@inject IActivityLogService Logs
+@inject NavigationManager Navigation
+
+<PageTitle>جزئیات کاربر | مدیریت LiveStudio</PageTitle>
+
+@if (_user is null) { <div class="loading-panel">@(_loaded ? "کاربر پیدا نشد." : "در حال بارگذاری...")</div><a class="btn btn-outline-secondary" href="/admin/users">بازگشت</a> }
+else
+{
+    <header class="topbar"><div><div class="eyebrow">ADMIN / USER</div><h1>@_user.FullName</h1></div>
+        <div class="top-actions">
+            @if (_user.IsBlocked) { <span class="b b-red">مسدود</span> } else { <span class="b b-green">فعال</span> }
+            <a class="btn btn-outline-secondary" href="/admin/users">بازگشت</a></div></header>
+    <Notice Error="@_error" Success="@_success" />
+
+    <div class="two-col mt-3">
+        <section class="panel">
+            <div class="panel-heading"><div><div class="eyebrow">PROFILE</div><h3>مشخصات کاربر</h3></div></div>
+            <div class="form-grid">
+                <div class="span-2"><label class="form-label">نام و نام خانوادگی</label><input class="form-control" @bind="_fullName" maxlength="120" /></div>
+                <div><label class="form-label">کد ملی</label><input class="form-control ltr-input" @bind="_national" maxlength="10" /></div>
+                <div><label class="form-label">موبایل</label><input class="form-control ltr-input" @bind="_mobile" maxlength="14" /></div>
+                <div class="span-2"><label class="form-label">ایمیل</label><input class="form-control ltr-input" @bind="_email" /></div>
+                <div class="span-2"><label class="form-label">یادداشت مدیر (فقط برای مدیران)</label><textarea class="form-control" rows="3" maxlength="2000" @bind="_note"></textarea></div>
+            </div>
+            <div class="btn-row mt-3">
+                @if (_canManage) { <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy"><i class="bi bi-check2 ms-1"></i>ذخیره</button>
+                    <button class="btn @(_user.IsBlocked ? "btn-success" : "btn-outline-danger")" @onclick="ToggleBlockAsync" disabled="@_busy"><i class="bi @(_user.IsBlocked ? "bi-unlock" : "bi-slash-circle") ms-1"></i>@(_user.IsBlocked ? "رفع مسدودی" : "مسدودسازی")</button> }
+            </div>
+            <div class="kv mt-3"><span>تاریخ عضویت</span><b>@Fa.Date(_user.CreatedAt, true)</b><span>آخرین ورود</span><b>@Fa.Date(_user.LastLoginAt, true)</b></div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-heading"><div><div class="eyebrow">SUBSCRIPTION</div><h3>اشتراک</h3></div><span class="b @(_sub.IsActive ? "b-green" : "b-red")">@(_sub.IsActive ? "فعال" : "غیرفعال")</span></div>
+            <div class="kv"><span>طرح فعلی</span><b>@_sub.PlanName</b><span>پایان اشتراک</span><b>@Fa.Date(_sub.EndsAt, true)</b><span>روز باقی‌مانده</span><b>@_sub.DaysLeft</b></div>
+            @if (_canSubscribe)
+            {
+                <hr />
+                <h6>تغییر دستی اشتراک</h6>
+                <div class="form-grid">
+                    <div><label class="form-label">طرح</label><select class="form-select" @onchange="OnPlanChanged"><option value="">انتخاب طرح...</option>@foreach (var p in _plans) { <option value="@p.Id" selected="@(_planId == p.Id)">@p.Name (@Fa.Duration(p.DurationDays))</option> }</select></div>
+                    <div><label class="form-label">مدت (روز)</label><input class="form-control" type="number" min="1" max="3650" @bind="_days" /></div>
+                    <div class="span-2"><label class="form-label">توضیح</label><input class="form-control" maxlength="300" @bind="_subNote" placeholder="مثلاً هدیه یا جبران قطعی" /></div>
+                </div>
+                <div class="btn-row mt-3">
+                    <button class="btn btn-primary" @onclick="() => ApplySubscription(true)" disabled="@(_busy || _planId == Guid.Empty)"><i class="bi bi-plus-circle ms-1"></i>افزودن به انتهای اشتراک</button>
+                    <button class="btn btn-outline-secondary" @onclick="() => ApplySubscription(false)" disabled="@(_busy || _planId == Guid.Empty)"><i class="bi bi-arrow-repeat ms-1"></i>جایگزینی از امروز</button>
+                    @if (_sub.IsActive) { <button class="btn btn-outline-danger" @onclick="CancelSubscription" disabled="@_busy"><i class="bi bi-x-circle ms-1"></i>لغو اشتراک</button> }
+                </div>
+            }
+        </section>
+    </div>
+
+    <div class="two-col mt-3">
+        <section class="panel">
+            <div class="panel-heading"><div><div class="eyebrow">GOOGLE OAUTH</div><h3>وضعیت اتصال یوتیوب</h3></div><span class="b @Fa.OAuthStateClass(_oauth!.State)">@Fa.OAuthState(_oauth.State)</span></div>
+            <div class="kv"><span>Project ID</span><b class="ltr-text">@(string.IsNullOrEmpty(_oauth.ProjectId) ? "—" : _oauth.ProjectId)</b>
+                <span>Client Secret</span><b>@(_oauth.HasSecret ? "ذخیره‌شده (رمزنگاری‌شده)" : "ثبت نشده")</b>
+                <span>کانال</span><b>@(_oauth.ChannelTitle ?? "—")</b><span>حساب گوگل</span><b class="ltr-text">@(_oauth.GoogleEmail ?? "—")</b>
+                <span>آخرین تست</span><b>@Fa.Date(_oauth.LastTestAt, true)</b></div>
+            @if (!string.IsNullOrWhiteSpace(_oauth.LastError)) { <div class="notice notice-error mt-2">@_oauth.LastError</div> }
+            <div class="form-text mt-2">Client Secret برای مدیران نیز نمایش داده نمی‌شود.</div>
+        </section>
+        <section class="panel">
+            <div class="panel-heading"><div><div class="eyebrow">PAYMENTS</div><h3>آخرین پرداخت‌ها</h3></div></div>
+            @if (_payments.Items.Count == 0) { <p class="muted">پرداختی ثبت نشده است.</p> }
+            else { <div class="table-wrap"><table class="data-table"><thead><tr><th>شماره</th><th>طرح</th><th>مبلغ</th><th>وضعیت</th></tr></thead><tbody>
+                @foreach (var r in _payments.Items) { <tr><td>#@r.Payment.Number</td><td>@r.Payment.PlanName</td><td>@Fa.Money(r.Payment.Amount)</td><td><span class="b @Fa.PaymentStatusClass(r.Payment.Status)">@Fa.PaymentStatusText(r.Payment.Status)</span></td></tr> }</tbody></table></div> }
+        </section>
+    </div>
+
+    <div class="two-col mt-3">
+        <section class="panel">
+            <div class="panel-heading"><div><div class="eyebrow">TICKETS</div><h3>تیکت‌های کاربر</h3></div></div>
+            @if (_tickets.Items.Count == 0) { <p class="muted">تیکتی ثبت نشده است.</p> }
+            else { <div class="table-wrap"><table class="data-table clickable"><thead><tr><th>#</th><th>موضوع</th><th>وضعیت</th></tr></thead><tbody>
+                @foreach (var t in _tickets.Items) { <tr @onclick='() => Navigation.NavigateTo($"/admin/tickets/{t.Id}")'><td>@t.Number</td><td>@t.Subject</td><td><span class="b @Fa.TicketStatusClass(t.Status)">@Fa.TicketStatusText(t.Status)</span></td></tr> }</tbody></table></div> }
+        </section>
+        <section class="panel">
+            <div class="panel-heading"><div><div class="eyebrow">ACTIVITY</div><h3>آخرین فعالیت‌ها</h3></div></div>
+            @if (_logs.Items.Count == 0) { <p class="muted">فعالیتی ثبت نشده است.</p> }
+            else { <ul class="timeline">@foreach (var l in _logs.Items) { <li><b>@l.Action</b><span>@l.Details</span><small>@Fa.Date(l.At, true) · <span class="ltr-text">@l.Ip</span></small></li> }</ul> }
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private AppUser? _user;
+    private SubscriptionInfo _sub = SubscriptionInfo.None;
+    private GoogleOAuthSettingsView? _oauth;
+    private PagedResult<PaymentRow> _payments = PagedResult<PaymentRow>.Empty();
+    private PagedResult<TicketRow> _tickets = PagedResult<TicketRow>.Empty();
+    private PagedResult<ActivityLog> _logs = PagedResult<ActivityLog>.Empty();
+    private IReadOnlyList<SubscriptionPlan> _plans = [];
+    private string _fullName = string.Empty, _national = string.Empty, _mobile = string.Empty, _email = string.Empty, _note = string.Empty, _subNote = string.Empty;
+    private Guid _planId; private int _days = 30;
+    private bool _loaded, _busy, _canManage, _canSubscribe;
+    private string? _error, _success;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _canManage = await Me.HasPermissionAsync(Permissions.Users);
+        _canSubscribe = await Me.HasPermissionAsync(Permissions.Subscriptions);
+        await LoadAsync();
+        _loaded = true;
+    }
+
+    private async Task LoadAsync()
+    {
+        _user = await Users.GetAsync(Id);
+        if (_user is null) return;
+        _fullName = _user.FullName; _national = _user.NationalCode; _mobile = _user.Mobile; _email = _user.Email ?? string.Empty; _note = _user.AdminNote ?? string.Empty;
+        _sub = await Subscriptions.GetCurrentAsync(Id);
+        _plans = await Subscriptions.GetPlansAsync(false);
+        _oauth = await OAuth.GetAsync(Id);
+        _payments = await Payments.SearchAsync(Id, null, null, 1, 5);
+        _tickets = await Tickets.SearchAsync(Id, null, null, 1, 5);
+        _logs = await Logs.SearchAsync(Id.ToString(), null, null, null, 1, 8);
+    }
+
+    private void OnPlanChanged(ChangeEventArgs e)
+    {
+        _planId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : Guid.Empty;
+        var plan = _plans.FirstOrDefault(p => p.Id == _planId);
+        if (plan is not null) _days = plan.DurationDays;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true; _error = _success = null;
+        var result = await Users.AdminUpdateAsync(Id, _fullName, _national, _mobile, _email, _note, await Me.ActorAsync());
+        if (result.Success) { _success = "اطلاعات کاربر ذخیره شد."; await LoadAsync(); } else _error = result.Error;
+        _busy = false;
+    }
+
+    private async Task ToggleBlockAsync()
+    {
+        _busy = true; _error = _success = null;
+        var result = await Users.SetBlockedAsync(Id, !_user!.IsBlocked, await Me.ActorAsync());
+        if (result.Success) await LoadAsync(); else _error = result.Error;
+        _busy = false;
+    }
+
+    private async Task ApplySubscription(bool extend)
+    {
+        _busy = true; _error = _success = null;
+        var plan = _plans.FirstOrDefault(p => p.Id == _planId);
+        if (plan is null || _days < 1 || _days > 3650) { _error = "طرح و مدت معتبر انتخاب کنید."; _busy = false; return; }
+        var actor = await Me.ActorAsync();
+        if (extend) await Subscriptions.GrantAsync(Id, plan.Id, plan.Name, _days, SubscriptionSource.Admin, _subNote, actor);
+        else
+        {
+            var result = await Subscriptions.AdminSetAsync(Id, plan.Id, plan.Name, DateTime.UtcNow.AddDays(_days), _subNote, actor);
+            if (!result.Success) { _error = result.Error; _busy = false; return; }
+        }
+        _success = "اشتراک کاربر به‌روزرسانی شد.";
+        await LoadAsync();
+        _busy = false;
+    }
+
+    private async Task CancelSubscription()
+    {
+        _busy = true; _error = _success = null;
+        var result = await Subscriptions.AdminCancelAsync(Id, await Me.ActorAsync());
+        if (result.Success) { _success = "اشتراک لغو شد."; await LoadAsync(); } else _error = result.Error;
+        _busy = false;
+    }
+}

@@ -1,0 +1,86 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject CurrentUser User
+@inject ITicketService Tickets
+@inject IMonitoringService Monitoring
+@inject NavigationManager Navigation
+
+<div class="app-shell admin-shell">
+    <aside class="sidebar admin-sidebar @(_menuOpen ? "open" : "")">
+        <a class="brand" href="/admin">
+            <span class="brand-icon admin-icon"><i class="bi bi-shield-lock-fill"></i></span>
+            <span><strong>LiveStudio</strong><small>ADMIN CONSOLE</small></span>
+        </a>
+        <nav class="nav flex-column app-nav" @onclick="() => _menuOpen = false">
+            @foreach (var item in Items.Where(i => _allowed.Contains(i.Permission)))
+            {
+                <NavLink class="nav-link" href="@item.Href" Match="@(item.Href == "admin" ? NavLinkMatch.All : NavLinkMatch.Prefix)">
+                    <i class="bi @item.Icon"></i> @item.Title
+                    @if (item.Permission == Permissions.Tickets && _openTickets > 0) { <span class="nav-badge">@_openTickets</span> }
+                    @if (item.Permission == Permissions.Monitoring && _openAlerts > 0) { <span class="nav-badge red">@_openAlerts</span> }
+                </NavLink>
+            }
+        </nav>
+        <div class="sidebar-footer"><span class="pulse-dot"></span><span>@_role</span><small>@_name</small></div>
+    </aside>
+    <div class="sidebar-scrim @(_menuOpen ? "open" : "")" @onclick="() => _menuOpen = false"></div>
+    <main class="main-area">
+        <div class="user-strip">
+            <button class="strip-menu d-lg-none" aria-label="منو" @onclick="() => _menuOpen = !_menuOpen"><i class="bi bi-list"></i></button>
+            <a class="strip-home" href="/" target="_blank"><i class="bi bi-box-arrow-up-right"></i> مشاهده وب‌سایت</a>
+            <span class="strip-spacer"></span>
+            @if (_openAlerts > 0 && _allowed.Contains(Permissions.Monitoring)) { <a class="sub-chip bad" href="/admin/monitoring"><i class="bi bi-exclamation-triangle-fill"></i>@_openAlerts هشدار فعال</a> }
+            <div class="strip-user"><span class="avatar admin-avatar">@Fa.Initials(_name)</span><span class="strip-name">@_name</span></div>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="Logout"><i class="bi bi-box-arrow-left ms-1"></i>خروج</button>
+        </div>
+        @Body
+        <footer class="app-footer"><span>LiveStudio Admin</span><span>همه اقدامات مدیریتی در لاگ فعالیت‌ها ثبت می‌شود</span></footer>
+    </main>
+</div>
+
+@code {
+    private sealed record NavItem(string Title, string Href, string Icon, string Permission);
+    private static readonly NavItem[] Items =
+    [
+        new("داشبورد", "admin", "bi-speedometer2", Permissions.Dashboard),
+        new("کاربران", "admin/users", "bi-people", Permissions.Users),
+        new("طرح‌ها و قیمت‌ها", "admin/plans", "bi-gem", Permissions.Plans),
+        new("پرداخت‌ها", "admin/payments", "bi-credit-card-2-front", Permissions.Payments),
+        new("درگاه پرداخت", "admin/gateway", "bi-bank", Permissions.Gateway),
+        new("تیکت‌ها", "admin/tickets", "bi-life-preserver", Permissions.Tickets),
+        new("پایش سامانه", "admin/monitoring", "bi-activity", Permissions.Monitoring),
+        new("لاگ فعالیت‌ها", "admin/logs", "bi-journal-text", Permissions.Logs),
+        new("محتوای وب‌سایت", "admin/content", "bi-window-stack", Permissions.Content),
+        new("تنظیمات سامانه", "admin/settings", "bi-sliders", Permissions.Settings),
+        new("کاربران مدیریت", "admin/staff", "bi-person-gear", Permissions.Staff)
+    ];
+
+    private readonly HashSet<string> _allowed = new(StringComparer.OrdinalIgnoreCase);
+    private string _name = string.Empty, _role = string.Empty;
+    private int _openTickets, _openAlerts;
+    private bool _menuOpen;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _name = await User.NameAsync();
+        _role = (await User.PrincipalAsync()).IsInRole(Roles.Admin) ? "مدیر اصلی سامانه" : "کاربر مدیریتی";
+        _allowed.Clear();
+        foreach (var (key, _, _) in Permissions.All) if (await User.HasPermissionAsync(key)) _allowed.Add(key);
+        if (_allowed.Contains(Permissions.Tickets)) _openTickets = await Tickets.CountOpenAsync();
+        if (_allowed.Contains(Permissions.Monitoring)) _openAlerts = await Monitoring.OpenAlertCountAsync();
+    }
+
+    private async void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        try { await InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }); } catch (ObjectDisposedException) { }
+    }
+
+    private void Logout() => Navigation.NavigateTo("/auth/logout", forceLoad: true);
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

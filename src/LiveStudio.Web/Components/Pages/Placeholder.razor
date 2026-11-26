@@ -1,0 +1,5 @@
+@page "/{Section}"
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+<h2>@Section</h2>
+<p>این بخش در فاز توسعه مربوطه پیاده‌سازی خواهد شد.</p>
+@code { [Parameter] public string? Section { get; set; } }

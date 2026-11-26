@@ -1,0 +1,94 @@
+@page "/admin/content"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:content")]
+@inject CurrentUser Me
+@inject IContentService Content
+@inject IJSRuntime JS
+
+<PageTitle>محتوای وب‌سایت | مدیریت LiveStudio</PageTitle>
+<header class="topbar"><div><div class="eyebrow">ADMIN / CONTENT</div><h1>محتوای وب‌سایت و اعلان‌ها</h1></div></header>
+<Notice Error="@_error" Success="@_success" />
+<div class="tabs"><button class="@(_tab == "site" ? "active" : "")" @onclick='() => _tab = "site"'><i class="bi bi-window"></i>متن‌های صفحه اصلی</button>
+    <button class="@(_tab == "faq" ? "active" : "")" @onclick='() => _tab = "faq"'><i class="bi bi-patch-question"></i>سوالات متداول</button>
+    <button class="@(_tab == "ann" ? "active" : "")" @onclick='() => _tab = "ann"'><i class="bi bi-megaphone"></i>اعلان‌های پنل کاربران</button></div>
+
+@if (_tab == "site" && _site is not null)
+{
+    <section class="panel mt-3"><div class="form-grid">
+        <div><label class="form-label">نام سامانه</label><input class="form-control" maxlength="60" @bind="_site.SiteName" /></div>
+        <div><label class="form-label">نوار اعلان بالای سایت (خالی = مخفی)</label><input class="form-control" maxlength="200" @bind="_site.AnnouncementBar" /></div>
+        <div class="span-2"><label class="form-label">عنوان اصلی (Hero)</label><input class="form-control" maxlength="200" @bind="_site.HeroTitle" /></div>
+        <div class="span-2"><label class="form-label">توضیح زیر عنوان</label><textarea class="form-control" rows="3" maxlength="500" @bind="_site.HeroSubtitle"></textarea></div>
+        <div><label class="form-label">تلفن پشتیبانی</label><input class="form-control ltr-input" @bind="_site.SupportPhone" /></div>
+        <div><label class="form-label">ایمیل پشتیبانی</label><input class="form-control ltr-input" @bind="_site.SupportEmail" /></div>
+        <div><label class="form-label">تلگرام</label><input class="form-control ltr-input" @bind="_site.SupportTelegram" placeholder="@@livestudio_support" /></div>
+        <div><label class="form-label">متن پایین صفحه</label><input class="form-control" maxlength="200" @bind="_site.FooterText" /></div>
+        <div class="span-2"><label class="form-label">متن قوانین و مقررات (اختیاری؛ اگر خالی باشد متن پیش‌فرض نمایش داده می‌شود)</label><textarea class="form-control" rows="8" maxlength="8000" @bind="_site.TermsText"></textarea></div>
+    </div><button class="btn btn-primary mt-3" @onclick="SaveSiteAsync"><i class="bi bi-check2 ms-1"></i>ذخیره</button></section>
+}
+else if (_tab == "faq")
+{
+    <section class="panel mt-3">
+        <div class="panel-heading"><div><div class="eyebrow">FAQ</div><h3>سوالات متداول</h3></div><button class="btn btn-primary btn-sm" @onclick="() => _faqEdit = new FaqItem { SortOrder = (_faq.Count + 1) }"><i class="bi bi-plus-lg ms-1"></i>پرسش جدید</button></div>
+        @if (_faqEdit is not null)
+        {
+            <div class="inline-form"><div class="form-grid">
+                <div class="span-2"><label class="form-label">پرسش</label><input class="form-control" maxlength="300" @bind="_faqEdit.Question" /></div>
+                <div class="span-2"><label class="form-label">پاسخ</label><textarea class="form-control" rows="4" maxlength="3000" @bind="_faqEdit.Answer"></textarea></div>
+                <div><label class="form-label">ترتیب</label><input class="form-control" type="number" @bind="_faqEdit.SortOrder" /></div>
+                <div class="check-row"><label><input type="checkbox" @bind="_faqEdit.IsActive" /> نمایش داده شود</label></div></div>
+                <div class="btn-row mt-2"><button class="btn btn-primary btn-sm" @onclick="SaveFaqAsync">ذخیره</button><button class="btn btn-outline-secondary btn-sm" @onclick="() => _faqEdit = null">انصراف</button></div></div>
+        }
+        <div class="toolbar"><SearchBox Value="@_faqQuery" ValueChanged="t => { _faqQuery = t; _faqPage = 1; }" Placeholder="جستجو در پرسش و پاسخ..." /></div>
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>ترتیب</th><th>پرسش</th><th>وضعیت</th><th></th></tr></thead>
+            <tbody>@foreach (var f in FaqPage) { <tr><td>@f.SortOrder</td><td class="cell-strong">@f.Question</td><td><span class="b @(f.IsActive ? "b-green" : "b-gray")">@(f.IsActive ? "نمایش" : "پنهان")</span></td>
+                <td class="actions"><button class="btn btn-outline-secondary btn-sm" @onclick="() => _faqEdit = Clone(f)"><i class="bi bi-pencil"></i></button><button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteFaqAsync(f)"><i class="bi bi-trash"></i></button></td></tr> }</tbody></table></div>
+        <Pager Page="_faqPage" TotalPages="FaqPages" Total="FaqFiltered.Count" PageChanged="p => _faqPage = p" />
+    </section>
+}
+else if (_tab == "ann")
+{
+    <section class="panel mt-3">
+        <div class="panel-heading"><div><div class="eyebrow">ANNOUNCEMENTS</div><h3>اعلان‌ها برای کاربران</h3></div><button class="btn btn-primary btn-sm" @onclick="() => _annEdit = new Announcement()"><i class="bi bi-plus-lg ms-1"></i>اعلان جدید</button></div>
+        @if (_annEdit is not null)
+        {
+            <div class="inline-form"><div class="form-grid">
+                <div class="span-2"><label class="form-label">عنوان</label><input class="form-control" maxlength="200" @bind="_annEdit.Title" /></div>
+                <div class="span-2"><label class="form-label">متن</label><textarea class="form-control" rows="3" maxlength="2000" @bind="_annEdit.Body"></textarea></div>
+                <div><label class="form-label">نوع</label><select class="form-select" @bind="_annEdit.Level"><option value="info">اطلاع‌رسانی</option><option value="success">خبر خوب</option><option value="warning">هشدار</option><option value="danger">مهم</option></select></div>
+                <div class="check-row"><label><input type="checkbox" @bind="_annEdit.IsActive" /> فعال</label></div></div>
+                <div class="btn-row mt-2"><button class="btn btn-primary btn-sm" @onclick="SaveAnnAsync">ذخیره</button><button class="btn btn-outline-secondary btn-sm" @onclick="() => _annEdit = null">انصراف</button></div></div>
+        }
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>عنوان</th><th>نوع</th><th>تاریخ</th><th>وضعیت</th><th></th></tr></thead>
+            <tbody>@foreach (var a in _ann) { <tr><td class="cell-strong">@a.Title</td><td>@a.Level</td><td>@Fa.Date(a.CreatedAt)</td><td><span class="b @(a.IsActive ? "b-green" : "b-gray")">@(a.IsActive ? "فعال" : "غیرفعال")</span></td>
+                <td class="actions"><button class="btn btn-outline-secondary btn-sm" @onclick="() => _annEdit = CloneAnn(a)"><i class="bi bi-pencil"></i></button><button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteAnnAsync(a)"><i class="bi bi-trash"></i></button></td></tr> }</tbody></table></div>
+    </section>
+}
+
+@code {
+    private string _tab = "site";
+    private SiteContent? _site;
+    private List<FaqItem> _faq = [];
+    private List<Announcement> _ann = [];
+    private FaqItem? _faqEdit;
+    private Announcement? _annEdit;
+    private string? _error, _success, _faqQuery;
+    private int _faqPage = 1;
+    private const int FaqSize = 8;
+
+    private List<FaqItem> FaqFiltered => string.IsNullOrWhiteSpace(_faqQuery) ? _faq
+        : _faq.Where(f => f.Question.Contains(_faqQuery, StringComparison.OrdinalIgnoreCase) || f.Answer.Contains(_faqQuery, StringComparison.OrdinalIgnoreCase)).ToList();
+    private IEnumerable<FaqItem> FaqPage => FaqFiltered.Skip((_faqPage - 1) * FaqSize).Take(FaqSize);
+    private int FaqPages => Math.Max(1, (int)Math.Ceiling(FaqFiltered.Count / (double)FaqSize));
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync() { _site = await Content.GetSiteContentAsync(); _faq = (await Content.GetFaqAsync(false)).ToList(); _ann = (await Content.GetAnnouncementsAsync(false)).ToList(); }
+    private static FaqItem Clone(FaqItem f) => new() { Id = f.Id, Question = f.Question, Answer = f.Answer, SortOrder = f.SortOrder, IsActive = f.IsActive };
+    private static Announcement CloneAnn(Announcement a) => new() { Id = a.Id, Title = a.Title, Body = a.Body, Level = a.Level, IsActive = a.IsActive, CreatedAt = a.CreatedAt, ExpiresAt = a.ExpiresAt };
+
+    private async Task SaveSiteAsync() { _error = _success = null; await Content.SaveSiteContentAsync(_site!, await Me.ActorAsync()); _success = "متن‌های سایت ذخیره شد."; }
+    private async Task SaveFaqAsync() { _error = _success = null; var r = await Content.SaveFaqAsync(_faqEdit!, await Me.ActorAsync()); if (r.Success) { _faqEdit = null; _success = "ذخیره شد."; await LoadAsync(); } else _error = r.Error; }
+    private async Task DeleteFaqAsync(FaqItem f) { if (!await JS.InvokeAsync<bool>("confirm", "این پرسش حذف شود؟")) return; await Content.DeleteFaqAsync(f.Id, await Me.ActorAsync()); await LoadAsync(); }
+    private async Task SaveAnnAsync() { _error = _success = null; var r = await Content.SaveAnnouncementAsync(_annEdit!, await Me.ActorAsync()); if (r.Success) { _annEdit = null; _success = "اعلان ذخیره شد."; await LoadAsync(); } else _error = r.Error; }
+    private async Task DeleteAnnAsync(Announcement a) { if (!await JS.InvokeAsync<bool>("confirm", "این اعلان حذف شود؟")) return; await Content.DeleteAnnouncementAsync(a.Id, await Me.ActorAsync()); await LoadAsync(); }
+}

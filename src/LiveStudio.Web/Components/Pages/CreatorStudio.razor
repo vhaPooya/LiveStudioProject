@@ -1,0 +1,234 @@
+@page "/creator"
+@attribute [Authorize(Policy = "Customer")]
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<PageTitle>Creator Studio | LiveStudio</PageTitle>
+
+<div class="sy-studio">
+    <header class="sy-top">
+        <a class="sy-brand" href="/panel" title="بازگشت به داشبورد"><i class="bi bi-broadcast-pin"></i><strong>LiveStudio</strong></a>
+        <span class="sy-title">استودیوی تولید محتوا<small>@VideoTitle</small></span>
+        <span class="sy-spacer"></span>
+        <span class="sy-conn"><i class="bi bi-circle-fill" style="color:@(IsRecording ? "#ff5367" : CameraReady ? "#37d6a0" : "#f4b860")"></i>@StatusText</span>
+        <a class="sy-link" href="/media-box"><i class="bi bi-collection-play"></i><span>Media Box</span></a>
+        <a class="sy-link" href="/panel"><i class="bi bi-grid-1x2"></i><span>داشبورد</span></a>
+        @if (CameraReady && !IsRecording)
+        {
+            <button class="sy-golive rec" @onclick="StartRecordingAsync" disabled="@Busy"><i class="bi bi-record-circle-fill"></i>شروع ضبط</button>
+        }
+        else if (IsRecording)
+        {
+            <button class="sy-golive live" @onclick="StopRecordingAsync" disabled="@Busy"><i class="bi bi-stop-circle-fill"></i>توقف و ذخیره</button>
+        }
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="notice notice-error sy-notice"><i class="bi bi-exclamation-triangle-fill ms-2"></i>@ErrorMessage<button class="sy-x" aria-label="بستن" @onclick="() => ErrorMessage = null"><i class="bi bi-x-lg"></i></button></div>
+    }
+    @if (!string.IsNullOrWhiteSpace(SuccessMessage))
+    {
+        <div class="notice notice-success sy-notice"><i class="bi bi-check-circle-fill ms-2"></i>@SuccessMessage<button class="sy-x" aria-label="بستن" @onclick="() => SuccessMessage = null"><i class="bi bi-x-lg"></i></button></div>
+    }
+
+    <LiveStudio.Web.Components.Shared.StudioComposerPanel StudioMode="creator" SourceVideoId="creatorPreview" Extras="CreatorExtras" ExtraContent="ExtraPane">
+        <StageOverlay>
+            @if (!CameraReady)
+            {
+                <div class="sy-lobby">
+                    <div class="sy-lobby-card">
+                        <i class="bi bi-camera-reels"></i>
+                        <h3>استودیوی تولید محتوا</h3>
+                        <p>دوربین و میکروفن را فعال کنید؛ ضبط از ترکیب تصویر، لوگو و گرافیک‌های Media Box ساخته و روی دستگاه خودتان ذخیره می‌شود.</p>
+                        <button class="btn btn-primary btn-lg" @onclick="PrepareAsync" disabled="@Busy"><i class="bi bi-camera-video ms-1"></i>فعال‌سازی دوربین و میکروفون</button>
+                    </div>
+                </div>
+            }
+        </StageOverlay>
+        <BottomBar>
+            <div class="sy-bar">
+            @if (!CameraReady)
+            {
+                <button class="sy-ctl wide" @onclick="PrepareAsync" disabled="@Busy"><i class="bi bi-camera-video ms-1"></i>فعال‌سازی دوربین و میکروفون</button>
+            }
+            else if (!IsRecording)
+            {
+                <button class="sy-ctl rec" @onclick="StartRecordingAsync" disabled="@Busy"><i class="bi bi-record-circle ms-1"></i>شروع ضبط</button>
+                <button class="sy-ctl" @onclick="StopPreviewAsync" disabled="@Busy"><i class="bi bi-power ms-1"></i>قطع دوربین</button>
+            }
+            else
+            {
+                @if (IsPaused)
+                {
+                    <button class="sy-ctl on" @onclick="ResumeRecordingAsync" disabled="@Busy"><i class="bi bi-play-fill ms-1"></i>ادامه ضبط</button>
+                    <span class="recording-clock"><i class="bi bi-pause-circle-fill"></i> ضبط موقتاً متوقف است</span>
+                }
+                else
+                {
+                    <button class="sy-ctl" @onclick="PauseRecordingAsync" disabled="@Busy"><i class="bi bi-pause-fill ms-1"></i>مکث ضبط</button>
+                    <span class="recording-clock"><i class="bi bi-record-circle-fill"></i> ضبط در حال انجام است</span>
+                }
+                <button class="sy-ctl danger" @onclick="StopRecordingAsync" disabled="@Busy"><i class="bi bi-stop-circle ms-1"></i>توقف و ذخیره ویدئو</button>
+            }
+        </div>
+        </BottomBar>
+    </LiveStudio.Web.Components.Shared.StudioComposerPanel>
+</div>
+
+@code {
+    private IReadOnlyList<LiveStudio.Web.Components.Shared.StudioComposerPanel.RailExtra> CreatorExtras =>
+    [
+        new("project", "bi-sliders", "پروژه و دستگاه‌ها"),
+        new("audio", "bi-soundwave", "صدا")
+    ];
+    private RenderFragment ExtraPaneBody(string key) => key switch
+    {
+        "project" => ProjectPane,
+        "audio" => AudioPane,
+        _ => b => { }
+    };
+    private RenderFragment<string> ExtraPane => key => ExtraPaneBody(key);
+    private RenderFragment AudioPane => @<LiveStudio.Web.Components.Shared.AudioMixerPanel StudioName="CREATOR STUDIO" />;
+    private RenderFragment ProjectPane => @<div>
+        <div class="ls-inspector-title"><div><small>PROJECT SETTINGS</small><h4>تنظیمات پروژه</h4></div><i class="bi bi-sliders"></i></div>
+
+            <label class="form-label" for="videoTitle">عنوان ویدئو</label>
+            <input id="videoTitle" class="form-control mb-3" @bind="VideoTitle" @bind:event="oninput" placeholder="مثلاً آموزش مقدماتی..." />
+            <label class="form-label" for="videoType">نوع محتوا</label>
+            <select id="videoType" class="form-select mb-3" @bind="VideoType">
+                <option>آموزشی</option><option>خبری</option><option>پادکست</option><option>مصاحبه</option><option>طنز و سرگرمی</option><option>معرفی محصول</option><option>سایر</option>
+            </select>
+            <label class="form-label" for="videoQuality">کیفیت ضبط</label>
+            <select id="videoQuality" class="form-select mb-3" @bind="Quality">
+                <option value="1080">Full HD - 1080p</option><option value="720">HD - 720p</option>
+            </select>
+            <label class="form-label" for="creatorCamera">دوربین</label>
+            <select id="creatorCamera" class="form-select mb-3" @bind="SelectedCamera" disabled="@(!CameraReady || IsRecording)">
+                @foreach (var device in Cameras) { <option value="@device.DeviceId">@device.Label</option> }
+            </select>
+            <label class="form-label" for="creatorMic">میکروفون</label>
+            <select id="creatorMic" class="form-select" @bind="SelectedMicrophone" disabled="@(!CameraReady || IsRecording)">
+                @foreach (var device in Microphones) { <option value="@device.DeviceId">@device.Label</option> }
+            </select>
+            <button class="btn btn-outline-secondary btn-sm w-100 mt-3" @onclick="ApplyDevicesAsync" disabled="@(!CameraReady || IsRecording || Busy)">اعمال دستگاه‌های انتخابی</button>
+        </div>;
+
+    private bool CameraReady, IsRecording, IsPaused, Busy;
+    private string StatusText = "آماده ضبط";
+    private string? ErrorMessage, SuccessMessage;
+    private string VideoTitle = "ویدئوی جدید";
+    private string VideoType = "آموزشی";
+    private string Quality = "1080";
+    private string? SelectedCamera, SelectedMicrophone;
+    private List<DeviceItem> Cameras = [];
+    private List<DeviceItem> Microphones = [];
+
+    private async Task PrepareAsync()
+    {
+        Busy = true; ErrorMessage = SuccessMessage = null;
+        try
+        {
+            await JS.InvokeVoidAsync("creatorStudio.prepare", "creatorPreview", int.Parse(Quality));
+            var devices = await JS.InvokeAsync<DeviceSet>("creatorStudio.devices");
+            Cameras = devices.Cameras;
+            Microphones = devices.Microphones;
+            SelectedCamera = Cameras.FirstOrDefault()?.DeviceId;
+            SelectedMicrophone = Microphones.FirstOrDefault()?.DeviceId;
+            CameraReady = true;
+            StatusText = "دوربین آماده است";
+            SuccessMessage = "دوربین و میکروفون آماده ضبط هستند.";
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; StatusText = "خطا در آماده‌سازی"; }
+        finally { Busy = false; }
+    }
+
+    private async Task ApplyDevicesAsync()
+    {
+        Busy = true; ErrorMessage = null;
+        try
+        {
+            await JS.InvokeVoidAsync("creatorStudio.switchDevices", SelectedCamera, SelectedMicrophone, int.Parse(Quality));
+            SuccessMessage = "دستگاه‌های انتخابی اعمال شدند.";
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+        finally { Busy = false; }
+    }
+
+    private async Task StartRecordingAsync()
+    {
+        Busy = true; ErrorMessage = SuccessMessage = null;
+        try
+        {
+            await JS.InvokeVoidAsync("creatorStudio.startRecording", SafeFileName(VideoTitle), VideoType, int.Parse(Quality));
+            IsRecording = true;
+            StatusText = "در حال ضبط";
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+        finally { Busy = false; }
+    }
+
+    private async Task PauseRecordingAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("creatorStudio.pauseRecording");
+            IsPaused = true;
+            StatusText = "ضبط متوقف موقت";
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+    }
+
+    private async Task ResumeRecordingAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("creatorStudio.resumeRecording");
+            IsPaused = false;
+            StatusText = "در حال ضبط";
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+    }
+
+    private async Task StopRecordingAsync()
+    {
+        Busy = true; ErrorMessage = null;
+        try
+        {
+            var result = await JS.InvokeAsync<RecordingResult>("creatorStudio.stopRecording");
+            IsRecording = false;
+            IsPaused = false;
+            StatusText = "فایل ذخیره شد";
+            var duration = TimeSpan.FromMilliseconds(result.DurationMilliseconds);
+            SuccessMessage = $"ضبط با مدت {duration.ToString(@"hh\:mm\:ss")} ذخیره شد؛ فایل {result.MimeType} با حجم {Math.Max(1, result.Size / 1024 / 1024)} مگابایت برای دانلود آماده است.";
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+        finally { Busy = false; }
+    }
+
+    private async Task StopPreviewAsync()
+    {
+        try { await JS.InvokeVoidAsync("creatorStudio.stop"); }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+        CameraReady = false; IsRecording = false; IsPaused = false; StatusText = "آماده ضبط";
+    }
+
+    private static string SafeFileName(string? value)
+    {
+        var name = string.IsNullOrWhiteSpace(value) ? "LiveStudio-Recording" : value.Trim();
+        foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '-');
+        return name.Length > 80 ? name[..80] : name;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("creatorStudio.dispose"); }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+    }
+
+    private sealed record DeviceItem(string DeviceId, string Label);
+    private sealed record DeviceSet(List<DeviceItem> Cameras, List<DeviceItem> Microphones);
+    private sealed record RecordingResult(long Size, string MimeType, long DurationMilliseconds);
+}

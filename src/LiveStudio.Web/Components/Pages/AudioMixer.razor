@@ -1,0 +1,138 @@
+@page "/audio-mixer"
+@attribute [Authorize(Policy = "Customer")]
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+
+<PageTitle>میکسر حرفه‌ای صدا | LiveStudio</PageTitle>
+
+<header class="topbar studio-topbar">
+    <div>
+        <div class="eyebrow">LIVESTUDIO / AUDIO CONTROL ROOM</div>
+        <h1>میکسر حرفه‌ای صدا</h1>
+        <p class="studio-subtitle">پروفایل مشترک پردازش صدای میکروفون در Live Studio و Creator Studio؛ با کنترل Gain، اکولایزر و کمپرسور</p>
+    </div>
+    <div class="top-actions">
+        <a class="btn btn-outline-secondary" href="/studio"><i class="bi bi-broadcast ms-1"></i>Live Studio</a>
+        <a class="btn btn-outline-secondary" href="/creator"><i class="bi bi-camera-reels ms-1"></i>Creator Studio</a>
+    </div>
+</header>
+
+@if (!string.IsNullOrWhiteSpace(Notice))
+{
+    <div class="notice @(IsError ? "notice-error" : "notice-success")">@Notice</div>
+}
+
+<div class="audio-layout">
+    <section class="panel audio-panel audio-input-panel">
+        <div class="panel-heading">
+            <div><div class="eyebrow">INPUT MONITOR</div><h3>ورودی میکروفون</h3></div>
+            <span class="status-pill">@(_testing ? "MONITORING" : "STANDBY")</span>
+        </div>
+        <label class="audio-field-label" for="audioDevice">انتخاب میکروفون</label>
+        <select id="audioDevice" class="form-select audio-select" @bind="SelectedDevice">
+            <option value="">میکروفون پیش‌فرض سیستم</option>
+            @foreach (var device in Devices)
+            {
+                <option value="@device.DeviceId">@device.Label</option>
+            }
+        </select>
+        <div class="audio-meter-wrap">
+            <div class="audio-meter-head"><span>سطح سیگنال ورودی</span><strong id="audioInputLevel">0%</strong></div>
+            <div class="audio-meter-track"><div id="audioInputMeter" class="audio-meter-fill"></div></div>
+            <div class="audio-meter-scale"><span>سیگنال ضعیف</span><span>مناسب</span><span>اوج</span></div>
+        </div>
+        <div class="audio-actions">
+            <button class="btn btn-primary" @onclick="StartTestAsync" disabled="@_testing"><i class="bi bi-soundwave ms-1"></i>آزمایش میکروفون</button>
+            <button class="btn btn-outline-secondary" @onclick="StopTestAsync" disabled="@(!_testing)"><i class="bi bi-stop-fill ms-1"></i>توقف پایش</button>
+        </div>
+        <div class="notice notice-info audio-hint">پایش فقط سطح صدا را اندازه‌گیری می‌کند و صدای میکروفون را از بلندگو پخش نمی‌کند؛ بنابراین احتمال فیدبک صوتی کاهش می‌یابد.</div>
+    </section>
+
+    <section class="panel audio-panel">
+        <div class="panel-heading"><div><div class="eyebrow">CHANNEL STRIP</div><h3>کنترل کانال ورودی</h3></div><label class="scene-toggle"><input type="checkbox" @bind="Config.Enabled" /><span>پردازش فعال</span></label></div>
+        <div class="audio-slider-row">
+            <label for="inputGain">Gain ورودی <strong>@Config.InputGain%</strong></label>
+            <input id="inputGain" class="form-range" type="range" min="0" max="200" step="1" @bind="Config.InputGain" @bind:event="oninput" />
+            <small>سطح سیگنال را قبل از اکولایزر و کمپرسور تنظیم می‌کند.</small>
+        </div>
+        <div class="audio-slider-row">
+            <label for="highPass">فیلتر حذف صدای بم ناخواسته <strong>@Config.HighPass Hz</strong></label>
+            <input id="highPass" class="form-range" type="range" min="20" max="300" step="5" @bind="Config.HighPass" @bind:event="oninput" />
+            <small>برای کاهش لرزش، صدای باد و ضربه‌های کم‌فرکانس.</small>
+        </div>
+        <div class="audio-checks">
+            <label><input type="checkbox" @bind="Config.NoiseSuppression" /> کاهش نویز مرورگر</label>
+            <label><input type="checkbox" @bind="Config.EchoCancellation" /> حذف اکو</label>
+            <label><input type="checkbox" @bind="Config.AutoGainControl" /> کنترل خودکار Gain</label>
+        </div>
+    </section>
+
+    <section class="panel audio-panel audio-eq-panel">
+        <div class="panel-heading"><div><div class="eyebrow">3-BAND EQUALIZER</div><h3>اکولایزر سه‌باند</h3></div><span class="status-pill">-12 dB / +12 dB</span></div>
+        <div class="audio-eq-grid">
+            <div class="audio-eq-control"><div class="eq-value">@Signed(Config.LowGain) dB</div><input aria-label="باس" class="eq-range" type="range" min="-12" max="12" step="1" @bind="Config.LowGain" @bind:event="oninput" /><strong>باس</strong><small>120 Hz</small></div>
+            <div class="audio-eq-control"><div class="eq-value">@Signed(Config.MidGain) dB</div><input aria-label="مید" class="eq-range" type="range" min="-12" max="12" step="1" @bind="Config.MidGain" @bind:event="oninput" /><strong>مید</strong><small>1.2 kHz</small></div>
+            <div class="audio-eq-control"><div class="eq-value">@Signed(Config.HighGain) dB</div><input aria-label="های" class="eq-range" type="range" min="-12" max="12" step="1" @bind="Config.HighGain" @bind:event="oninput" /><strong>های</strong><small>6.5 kHz</small></div>
+        </div>
+        <div class="audio-preset-row">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="VoicePreset">صدای گفتار</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="PodcastPreset">پادکست گرم</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="FlatPreset">بدون رنگ</button>
+        </div>
+    </section>
+
+    <section class="panel audio-panel">
+        <div class="panel-heading"><div><div class="eyebrow">DYNAMICS PROCESSOR</div><h3>کمپرسور صدا</h3></div><label class="scene-toggle"><input type="checkbox" @bind="Config.Compressor" /><span>فعال‌سازی</span></label></div>
+        <div class="audio-slider-row @(Config.Compressor ? "" : "audio-muted")">
+            <label for="threshold">آستانه (Threshold) <strong>@Config.Threshold dB</strong></label>
+            <input id="threshold" class="form-range" type="range" min="-60" max="0" step="1" @bind="Config.Threshold" @bind:event="oninput" disabled="@(!Config.Compressor)" />
+        </div>
+        <div class="audio-slider-row @(Config.Compressor ? "" : "audio-muted")">
+            <label for="ratio">نسبت فشرده‌سازی <strong>@(Config.Ratio.ToString("0.#")):1</strong></label>
+            <input id="ratio" class="form-range" type="range" min="1" max="20" step="0.5" @bind="Config.Ratio" @bind:event="oninput" disabled="@(!Config.Compressor)" />
+        </div>
+        <div class="notice notice-info audio-hint">کمپرسور اختلاف بلندی صدا را کنترل می‌کند. برای جلوگیری از صدای خفه، فشرده‌سازی را بیش از نیاز افزایش ندهید.</div>
+    </section>
+
+    <section class="panel audio-panel audio-save-panel">
+        <div><div class="eyebrow">SHARED AUDIO PROFILE</div><h3>پروفایل پردازش صدا</h3><p>تنظیمات در همین مرورگر ذخیره می‌شوند و در هر دو استودیو روی ورودی میکروفون اعمال می‌شوند.</p></div>
+        <div class="audio-save-actions"><button class="btn btn-outline-secondary" @onclick="Reset">بازنشانی</button><button class="btn btn-primary" @onclick="SaveAsync" disabled="@Saving"><i class="bi bi-check2-circle ms-1"></i>@(Saving ? "در حال ذخیره..." : "ذخیره پروفایل")</button></div>
+    </section>
+</div>
+
+@code {
+    private AudioConfig Config = new();
+    private List<AudioDevice> Devices = new();
+    private string SelectedDevice = "";
+    private bool _testing, Saving, IsError;
+    private string? Notice;
+    private static string Signed(double value) => value > 0 ? "+" + value.ToString("0.#") : value.ToString("0.#");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try { Config = await JS.InvokeAsync<AudioConfig>("audioMixer.load"); StateHasChanged(); }
+        catch (Exception ex) { Notice = "بارگذاری پروفایل صدا ناموفق بود: " + ex.Message; IsError = true; StateHasChanged(); }
+    }
+    private async Task StartTestAsync()
+    {
+        try { var result = await JS.InvokeAsync<AudioTestResult>("audioMixer.startTest", SelectedDevice); Devices = await JS.InvokeAsync<List<AudioDevice>>("audioMixer.devices"); _testing = true; Notice = "پایش ورودی فعال شد: " + result.Label; IsError = false; }
+        catch (Exception ex) { Notice = "دسترسی به میکروفون ناموفق بود: " + ex.Message; IsError = true; }
+    }
+    private async Task StopTestAsync() { await JS.InvokeVoidAsync("audioMixer.stopTest"); _testing = false; Notice = "پایش میکروفون متوقف شد."; }
+    private async Task SaveAsync()
+    {
+        Saving = true; Notice = null; IsError = false;
+        try { await JS.InvokeAsync<AudioConfig>("audioMixer.save", Config); try { await JS.InvokeVoidAsync("liveStudio.refreshMicrophoneProcessing"); } catch (JSException) { } Notice = "پروفایل ذخیره شد و روی پردازش‌های فعال اعمال شد؛ در Live Studio نیز روی ترک میکروفون منتشرشده اعمال می‌شود."; }
+        catch (Exception ex) { Notice = "ذخیره پروفایل ناموفق بود: " + ex.Message; IsError = true; }
+        finally { Saving = false; }
+    }
+    private void VoicePreset() { Config.LowGain = -2; Config.MidGain = 3; Config.HighGain = 2; Config.HighPass = 90; Config.Compressor = true; Config.Threshold = -25; Config.Ratio = 3; }
+    private void PodcastPreset() { Config.LowGain = 2; Config.MidGain = 1; Config.HighGain = -1; Config.HighPass = 75; Config.Compressor = true; Config.Threshold = -28; Config.Ratio = 2.5; }
+    private void FlatPreset() { Config.LowGain = 0; Config.MidGain = 0; Config.HighGain = 0; Config.HighPass = 80; Config.Compressor = false; }
+    private void Reset() { Config = new(); }
+
+    public sealed class AudioConfig { public bool Enabled { get; set; } = true; public int InputGain { get; set; } = 100; public int HighPass { get; set; } = 80; public int LowGain { get; set; } public int MidGain { get; set; } public int HighGain { get; set; } public bool Compressor { get; set; } = true; public int Threshold { get; set; } = -24; public double Ratio { get; set; } = 3; public bool NoiseSuppression { get; set; } = true; public bool EchoCancellation { get; set; } = true; public bool AutoGainControl { get; set; } }
+    public sealed record AudioDevice(string DeviceId, string Label);
+    public sealed record AudioTestResult(string Label);
+}

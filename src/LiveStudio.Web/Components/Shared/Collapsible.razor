@@ -1,0 +1,65 @@
+@inject IJSRuntime JS
+
+@if (Panel)
+{
+    <section class="panel ls-collapsible @Class @(_collapsed ? "is-collapsed" : "")">
+        <div class="panel-heading ls-collapsible-head">
+            <div>
+                @if (!string.IsNullOrWhiteSpace(Eyebrow)) { <div class="eyebrow">@Eyebrow</div> }
+                <h3>@if (!string.IsNullOrWhiteSpace(Icon)) { <i class="bi @Icon ms-1"></i> }@Title</h3>
+            </div>
+            <div class="ls-collapsible-actions">
+                @Actions
+                <button type="button" class="ls-collapse-btn" title="@(_collapsed ? "نمایش پنل" : "پنهان‌کردن پنل")" @onclick="ToggleAsync">
+                    <i class="bi @(_collapsed ? "bi-chevron-down" : "bi-chevron-up")"></i><span>@(_collapsed ? "نمایش" : "پنهان")</span>
+                </button>
+            </div>
+        </div>
+        <div class="ls-collapsible-body" hidden="@_collapsed">@ChildContent</div>
+    </section>
+}
+else
+{
+    <div class="ls-section @(_collapsed ? "is-collapsed" : "")">
+        <button type="button" class="ls-section-head" @onclick="ToggleAsync" aria-expanded="@(!_collapsed)">
+            <span>@if (!string.IsNullOrWhiteSpace(Icon)) { <i class="bi @Icon"></i> }@Title</span>
+            <i class="bi @(_collapsed ? "bi-chevron-down" : "bi-chevron-up")"></i>
+        </button>
+        <div class="ls-section-body" hidden="@_collapsed">@ChildContent</div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string? Eyebrow { get; set; }
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public bool Panel { get; set; }
+    [Parameter] public bool DefaultCollapsed { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+
+    private bool _collapsed;
+    private bool _loaded;
+
+    protected override void OnInitialized() => _collapsed = DefaultCollapsed;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _loaded) return;
+        _loaded = true;
+        try
+        {
+            var saved = await JS.InvokeAsync<bool?>("lsUi.get", "collapse:" + Id);
+            if (saved.HasValue && saved.Value != _collapsed) { _collapsed = saved.Value; StateHasChanged(); }
+        }
+        catch (Exception) { }
+    }
+
+    private async Task ToggleAsync()
+    {
+        _collapsed = !_collapsed;
+        try { await JS.InvokeVoidAsync("lsUi.set", "collapse:" + Id, _collapsed); } catch (Exception) { }
+    }
+}

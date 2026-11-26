@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+.env
+*.user
+*.suo
+
+.keys/
+*.db
+*.db-shm
+*.db-wal
+**/.keys/
+data/

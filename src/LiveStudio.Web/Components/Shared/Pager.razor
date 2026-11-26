@@ -1,0 +1,16 @@
+<div class="pager">
+    <span class="pager-info">@Total مورد · صفحه @Page از @TotalPages</span>
+    <div class="pager-buttons">
+        <button class="btn btn-outline-secondary btn-sm" disabled="@(Page <= 1)" @onclick="() => Go(1)"><i class="bi bi-chevron-double-right"></i></button>
+        <button class="btn btn-outline-secondary btn-sm" disabled="@(Page <= 1)" @onclick="() => Go(Page - 1)"><i class="bi bi-chevron-right"></i></button>
+        <button class="btn btn-outline-secondary btn-sm" disabled="@(Page >= TotalPages)" @onclick="() => Go(Page + 1)"><i class="bi bi-chevron-left"></i></button>
+        <button class="btn btn-outline-secondary btn-sm" disabled="@(Page >= TotalPages)" @onclick="() => Go(TotalPages)"><i class="bi bi-chevron-double-left"></i></button>
+    </div>
+</div>
+@code {
+    [Parameter] public int Page { get; set; } = 1;
+    [Parameter] public int TotalPages { get; set; } = 1;
+    [Parameter] public int Total { get; set; }
+    [Parameter] public EventCallback<int> PageChanged { get; set; }
+    private Task Go(int page) => PageChanged.InvokeAsync(Math.Clamp(page, 1, Math.Max(1, TotalPages)));
+}

@@ -1,0 +1,72 @@
+@page "/panel/tickets"
+@attribute [Authorize(Policy = "Customer")]
+@inject CurrentUser User
+@inject ITicketService TicketSvc
+@inject NavigationManager Navigation
+
+<PageTitle>تیکت‌ها | LiveStudio</PageTitle>
+
+<header class="topbar"><div><div class="eyebrow">SUPPORT / TICKETS</div><h1>تیکت‌های پشتیبانی</h1></div>
+    <button class="btn btn-primary" @onclick="() => _showNew = !_showNew"><i class="bi bi-plus-lg ms-1"></i>تیکت جدید</button></header>
+
+<Notice Error="@_error" Success="@_success" />
+
+@if (_showNew)
+{
+    <section class="panel mt-3">
+        <div class="panel-heading"><div><div class="eyebrow">NEW TICKET</div><h3>ثبت درخواست جدید</h3></div></div>
+        <form @onsubmit="CreateAsync" @onsubmit:preventDefault>
+            <div class="form-grid">
+                <div class="span-2"><label class="form-label">موضوع</label><input class="form-control" maxlength="200" @bind="_subject" @bind:event="oninput" placeholder="خلاصه‌ی مشکل یا درخواست" /></div>
+                <div><label class="form-label">بخش</label><select class="form-select" @bind="_department"><option value="support">پشتیبانی</option><option value="technical">فنی</option><option value="billing">مالی</option><option value="sales">فروش</option></select></div>
+                <div><label class="form-label">اولویت</label><select class="form-select" @bind="_priority">@foreach (var p in Enum.GetValues<TicketPriority>()) { <option value="@p">@Fa.Priority(p)</option> }</select></div>
+                <div class="span-2"><label class="form-label">شرح</label><textarea class="form-control" rows="6" maxlength="5000" @bind="_body" @bind:event="oninput" placeholder="جزئیات را بنویسید؛ مثلاً مرحله‌ای که خطا رخ داده و پیام خطا."></textarea></div>
+            </div>
+            <div class="btn-row mt-3"><button class="btn btn-primary" type="submit" disabled="@_busy"><i class="bi bi-send ms-1"></i>ارسال تیکت</button><button class="btn btn-outline-secondary" type="button" @onclick="() => _showNew = false">انصراف</button></div>
+        </form>
+    </section>
+}
+
+<section class="panel mt-3">
+    <div class="toolbar"><SearchBox Value="@_query" ValueChanged="OnSearch" Placeholder="جستجو در موضوع یا شماره تیکت..." />
+        <select class="form-select" @onchange="OnStatus"><option value="">همه وضعیت‌ها</option>@foreach (var s in Enum.GetValues<TicketStatus>()) { <option value="@((int)s)">@Fa.TicketStatusText(s)</option> }</select></div>
+    @if (_result.Items.Count == 0) { <div class="empty-state"><div class="empty-icon"><i class="bi bi-chat-square-text"></i></div><strong>تیکتی وجود ندارد</strong><p>برای هر سوال یا مشکلی می‌توانید یک تیکت جدید ثبت کنید.</p></div> }
+    else
+    {
+        <div class="table-wrap"><table class="data-table clickable">
+            <thead><tr><th>شماره</th><th>موضوع</th><th>بخش</th><th>اولویت</th><th>آخرین بروزرسانی</th><th>وضعیت</th></tr></thead>
+            <tbody>@foreach (var t in _result.Items)
+            {
+                <tr @onclick='() => Navigation.NavigateTo($"/panel/tickets/{t.Id}")'><td>#@t.Number</td><td class="cell-strong">@t.Subject</td><td>@Fa.Department(t.Department)</td>
+                    <td><span class="b @Fa.PriorityClass(t.Priority)">@Fa.Priority(t.Priority)</span></td><td>@Fa.Date(t.UpdatedAt, true)</td>
+                    <td><span class="b @Fa.TicketStatusClass(t.Status)">@Fa.TicketStatusText(t.Status)</span></td></tr>
+            }</tbody></table></div>
+        <Pager Page="_result.Page" TotalPages="_result.TotalPages" Total="_result.Total" PageChanged="GoPage" />
+    }
+</section>
+
+@code {
+    private Guid _userId;
+    private PagedResult<TicketRow> _result = PagedResult<TicketRow>.Empty();
+    private string? _query, _error, _success;
+    private TicketStatus? _status;
+    private int _page = 1;
+    private bool _showNew, _busy;
+    private string _subject = string.Empty, _body = string.Empty, _department = "support";
+    private TicketPriority _priority = TicketPriority.Normal;
+
+    protected override async Task OnInitializedAsync() { _userId = await User.UserIdAsync() ?? Guid.Empty; await LoadAsync(); }
+    private async Task LoadAsync() => _result = await TicketSvc.SearchAsync(_userId, _query, _status, _page, 10);
+    private async Task OnSearch(string text) { _query = text; _page = 1; await LoadAsync(); }
+    private async Task OnStatus(ChangeEventArgs e) { _status = int.TryParse(e.Value?.ToString(), out var v) ? (TicketStatus)v : null; _page = 1; await LoadAsync(); }
+    private async Task GoPage(int page) { _page = page; await LoadAsync(); }
+
+    private async Task CreateAsync()
+    {
+        _busy = true; _error = _success = null;
+        var result = await TicketSvc.CreateAsync(_userId, _subject, _department, _priority, _body);
+        _busy = false;
+        if (!result.Success) { _error = result.Error; return; }
+        Navigation.NavigateTo($"/panel/tickets/{result.Value}");
+    }
+}

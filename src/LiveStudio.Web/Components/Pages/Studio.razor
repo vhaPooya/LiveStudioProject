@@ -1,0 +1,685 @@
+@page "/studio/{BroadcastId}"
+@attribute [Authorize(Policy = "Customer")]
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@using System.Net.Http.Json
+@using System.Text.Json
+@inject TenantApi TenantApi
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject StudioAccess Access
+@inject CurrentUser CurrentUserSvc
+@inject IStreamDestinationService DestSvc
+@inject IStreamSessionService SessionSvc
+
+<PageTitle>استودیوی پخش | LiveStudio</PageTitle>
+
+<div class="sy-studio">
+    <header class="sy-top">
+        <a class="sy-brand" href="/panel" title="بازگشت به داشبورد"><i class="bi bi-broadcast-pin"></i><strong>LiveStudio</strong></a>
+        <span class="sy-title">استودیوی پخش زنده<small>@BroadcastId</small></span>
+        <span class="sy-spacer"></span>
+        <span class="sy-conn"><i class="bi bi-circle-fill" style="color:@(IsConnected ? "#37d6a0" : "#f4b860")"></i>@StatusText</span>
+        <button class="sy-link" @onclick="ToggleThemeAsync" title="تم روشن / تیره"><i class="bi bi-circle-half"></i><span>تم</span></button>
+        <button class="sy-link" @onclick="TogglePhoneAsync" title="حالت تلفن"><i class="bi bi-phone"></i><span>تلفن</span></button>
+        <a class="sy-link" href="/panel/team"><i class="bi bi-people"></i><span>تیم</span></a>
+        <a class="sy-link" href="/media-box"><i class="bi bi-collection-play"></i><span>Media Box</span></a>
+        <a class="sy-link" href="/panel"><i class="bi bi-grid-1x2"></i><span>داشبورد</span></a>
+        @if (YouTubeEgressActive)
+        {
+            <button class="sy-golive live" @onclick="StopYouTubeEgressAsync" disabled="@IsBusy"><i class="bi bi-stop-circle-fill"></i>پایان پخش</button>
+        }
+        else
+        {
+            <button class="sy-golive" @onclick="GoLiveAsync" disabled="@(IsBusy || !IsConnected || !CameraEnabled)" title="@(IsConnected ? "فعال‌سازی خروجی و شروع پخش به YouTube" : "ابتدا وارد استودیو شوید")"><i class="bi bi-youtube"></i>Go live</button>
+        }
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="notice notice-error sy-notice"><i class="bi bi-exclamation-triangle-fill ms-2"></i>@ErrorMessage<button class="sy-x" aria-label="بستن" @onclick="() => ErrorMessage = null"><i class="bi bi-x-lg"></i></button></div>
+    }
+    @if (!string.IsNullOrWhiteSpace(SuccessMessage))
+    {
+        <div class="notice notice-success sy-notice"><i class="bi bi-check-circle-fill ms-2"></i>@SuccessMessage<button class="sy-x" aria-label="بستن" @onclick="() => SuccessMessage = null"><i class="bi bi-x-lg"></i></button></div>
+    }
+
+    @if (Denied)
+    {
+        <div class="sy-lobby" style="position:static;min-height:60vh"><div class="sy-lobby-card"><i class="bi bi-shield-lock"></i><h3>دسترسی ندارید</h3><p>شما عضو تیم این استودیو نیستید.</p><a class="btn btn-primary" href="/panel">بازگشت به داشبورد</a></div></div>
+    }
+    else if (_ctx is not null)
+    {
+    <LiveStudio.Web.Components.Shared.StudioComposerPanel StudioMode="live" SourceVideoId="cameraPreview" Extras="LiveExtras" ExtraContent="ExtraPane">
+        <StageOverlay>
+            @if (!IsConnected)
+            {
+                <div class="sy-lobby">
+                    <div class="sy-lobby-card" style="max-width:860px;width:calc(100% - 24px)">
+                        <h3>آماده‌سازی قبل از ورود</h3>
+                        <div class="sy-lobby-grid">
+                            <div>
+                                <div class="sy-lobby-video"><video id="lobbyVideo" autoplay playsinline muted></video></div>
+                                <div class="sy-meter" title="سطح صدای میکروفن"><i id="lobbyMeter"></i></div>
+                                <div class="sy-checks">
+                                    <span class="@(LobbyTested ? (LobbyCamOk ? "ok" : "bad") : "")">دوربین @(LobbyTested ? (LobbyCamOk ? $"✓ {LobbyRes}" : "✗") : "…")</span>
+                                    <span class="@(LobbyTested ? (LobbyMicOk ? "ok" : "bad") : "")">میکروفن @(LobbyTested ? (LobbyMicOk ? "✓" : "✗") : "…")</span>
+                                    <span class="@(LobbyCamOk && LobbySecure ? "ok" : (LobbyTested ? "bad" : ""))">اتصال امن @(LobbySecure ? "✓" : "✗")</span>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(LobbyError)) { <small class="text-warning d-block mt-2">@LobbyError</small> }
+                            </div>
+                            <div>
+                                <label class="form-label">دوربین</label>
+                                <select class="form-select form-select-sm" value="@SelectedCamera" @onchange="LobbyCameraChanged">@foreach (var d in Cameras) { <option value="@d.DeviceId">@d.Label</option> }</select>
+                                <label class="form-label mt-2">میکروفن</label>
+                                <select class="form-select form-select-sm" value="@SelectedMicrophone" @onchange="LobbyMicChanged">@foreach (var d in Microphones) { <option value="@d.DeviceId">@d.Label</option> }</select>
+                                <div class="d-flex flex-wrap gap-1 mt-2">
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="LobbyFlipAsync"><i class="bi bi-arrow-repeat ms-1"></i>چرخاندن دوربین</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="LobbySpeakerAsync"><i class="bi bi-volume-up ms-1"></i>تست خروجی صدا</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="LobbyRetryAsync"><i class="bi bi-arrow-clockwise ms-1"></i>آزمون مجدد</button>
+                                </div>
+                                <p class="mt-3 mb-2" style="font-size:12px;color:#8ea3c0">ورود به استودیو، دوربین و میکروفن را روشن می‌کند اما پخش را شروع نمی‌کند.</p>
+                                <button class="btn btn-primary btn-lg w-100" @onclick="ConnectAsync" disabled="@IsBusy"><i class="bi bi-door-open ms-1"></i>@(IsBusy ? "در حال اتصال..." : "ورود به استودیو")</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </StageOverlay>
+        <BottomBar>
+            <div class="sy-bar">
+                @if (IsConnected)
+                {
+                    <button class="sy-ctl @(MicrophoneEnabled ? "" : "off")" title="@(MicrophoneEnabled ? "قطع میکروفن" : "فعال‌کردن میکروفن")" @onclick="ToggleMicrophoneAsync" disabled="@IsBusy"><i class="bi @(MicrophoneEnabled ? "bi-mic-fill" : "bi-mic-mute-fill")"></i><span>میکروفن</span></button>
+                    <button class="sy-ctl @(CameraEnabled ? "" : "off")" title="@(CameraEnabled ? "خاموش کردن دوربین" : "روشن کردن دوربین")" @onclick="ToggleCameraAsync" disabled="@IsBusy"><i class="bi @(CameraEnabled ? "bi-camera-video-fill" : "bi-camera-video-off-fill")"></i><span>دوربین</span></button>
+                    <button class="sy-ctl @(ScreenShareEnabled ? "on" : "")" title="@(ScreenShareEnabled ? "توقف اشتراک صفحه" : "اشتراک صفحه")" @onclick="ToggleScreenShareAsync" disabled="@IsBusy"><i class="bi bi-display"></i><span>اشتراک صفحه</span></button>
+                    <button class="sy-ctl @(ProgramOutputEnabled ? "on" : "")" title="@(ProgramOutputEnabled ? "توقف خروجی گرافیکی" : "فعال‌سازی خروجی گرافیکی (Program)")" @onclick="ToggleProgramOutputAsync" disabled="@(IsBusy || !CameraEnabled)"><i class="bi bi-layers-fill"></i><span>خروجی گرافیکی</span></button>
+                    <button class="sy-ctl danger" title="قطع اتصال" @onclick="DisconnectAsync" disabled="@IsBusy"><i class="bi bi-power"></i><span>خروج</span></button>
+                }
+                else
+                {
+                    <span class="sy-bar-hint"><i class="bi bi-info-circle"></i> برای شروع، وارد استودیو شوید.</span>
+                }
+            </div>
+        </BottomBar>
+    </LiveStudio.Web.Components.Shared.StudioComposerPanel>
+    }
+</div>
+
+@code {
+    private RenderFragment DevicesPane => @<div>
+        <div class="ls-inspector-title"><div><small>INPUT DEVICES</small><h4>دستگاه‌های ورودی</h4></div><i class="bi bi-hdd-network"></i></div>
+        <label class="form-label" for="cameraDevice">دوربین</label>
+        <select id="cameraDevice" class="form-select" value="@SelectedCamera" @onchange="OnCameraChanged" disabled="@(!IsConnected || Cameras.Count == 0)">
+            @foreach (var device in Cameras) { <option value="@device.DeviceId">@device.Label</option> }
+        </select>
+        <label class="form-label mt-3" for="microphoneDevice">میکروفن</label>
+        <select id="microphoneDevice" class="form-select" value="@SelectedMicrophone" @onchange="OnMicrophoneChanged" disabled="@(!IsConnected || Microphones.Count == 0)">
+            @foreach (var device in Microphones) { <option value="@device.DeviceId">@device.Label</option> }
+        </select>
+        <button class="btn btn-outline-secondary btn-sm w-100 mt-3" @onclick="RefreshDevicesAsync" disabled="@(!IsConnected)"><i class="bi bi-arrow-repeat ms-1"></i>بروزرسانی دستگاه‌ها</button>
+    </div>;
+
+    private RenderFragment ChatPane => @<LiveStudio.Web.Components.Shared.StudioChat IsConnected="IsConnected" OnUnread="n => { ChatUnread = n; return Task.CompletedTask; }" />;
+
+    private RenderFragment AudioPane => @<LiveStudio.Web.Components.Shared.AudioMixerPanel StudioName="LIVE STUDIO" />;
+
+    private RenderFragment StatusPane => @<div>
+        <div class="ls-inspector-title"><div><small>SESSION</small><h4>وضعیت اتصال</h4></div><i class="bi bi-activity"></i></div>
+        <div class="device-status"><span>اتصال LiveKit</span><strong class="@(IsConnected ? "text-success" : "text-warning")">@(IsConnected ? "متصل" : "قطع")</strong></div>
+        <div class="device-status"><span>دوربین</span><strong>@(CameraEnabled ? "فعال" : "غیرفعال")</strong></div>
+        <div class="device-status"><span>میکروفن</span><strong>@(MicrophoneEnabled ? "فعال" : "غیرفعال")</strong></div>
+        <div class="device-status"><span>اشتراک صفحه</span><strong>@(ScreenShareEnabled ? "فعال" : "غیرفعال")</strong></div>
+        <div class="device-status"><span>خروجی گرافیکی برنامه</span><strong class="@(ProgramOutputEnabled ? "text-success" : "")">@(ProgramOutputEnabled ? "در حال انتشار" : "خاموش")</strong></div>
+        <div class="device-status"><span>پخش YouTube / RTMP</span><strong class="@(YouTubeEgressActive ? "text-success" : "text-secondary")">@YouTubeEgressStatusText</strong></div>
+        @if (Live is not null)
+        {
+            <div class="sy-stats"><div><b>@Live.ConcurrentViewers</b><small>بیننده فعلی</small></div><div><b>@Live.PeakViewers</b><small>اوج</small></div><div><b>@Live.Comments</b><small>کامنت</small></div><div><b>@Live.Views</b><small>بازدید</small></div><div><b>@Live.Likes</b><small>لایک</small></div></div>
+        }
+        @if (Summary is not null)
+        {
+            <div class="ls-inspector-title mt-2"><div><small>SUMMARY</small><h4>خلاصه پخش اخیر</h4></div><i class="bi bi-bar-chart"></i></div>
+            <div class="sy-stats"><div><b>@Summary.Duration.ToString(@"hh\:mm\:ss")</b><small>مدت</small></div><div><b>@Summary.PeakViewers</b><small>اوج بیننده</small></div><div><b>@Summary.Comments</b><small>کامنت</small></div><div><b>@Summary.Views</b><small>بازدید</small></div><div><b>@Summary.Likes</b><small>لایک</small></div></div>
+            <a class="btn btn-sm btn-outline-primary w-100" href="/panel/stats"><i class="bi bi-graph-up ms-1"></i>همه پخش‌ها</a>
+        }
+        <button class="btn btn-sm btn-outline-danger w-100 mt-2" @onclick="EndBroadcastAsync" disabled="@IsBusy"><i class="bi bi-flag-fill ms-1"></i>پایان کامل لایو در یوتیوب</button>
+        <small class="text-secondary d-block mt-1">با پایان کامل، پخش در یوتیوب بسته می‌شود و گزینه‌ی «بارگذاری/حذف ضبط» که هنگام ساخت لایو انتخاب کرده‌اید اعمال می‌شود.</small>
+        <button class="btn btn-sm btn-outline-secondary w-100 mt-2" @onclick="RefreshYouTubeEgressStatusAsync" disabled="@IsBusy"><i class="bi bi-arrow-repeat ms-1"></i>بروزرسانی وضعیت YouTube</button>
+        @if (YouTubeEgressActive)
+        {
+            <button class="btn btn-sm btn-warning w-100 mt-2" @onclick="StopYouTubeEgressAsync" disabled="@IsBusy"><i class="bi bi-stop-circle ms-1"></i>توقف پخش YouTube</button>
+        }
+    </div>;
+
+
+    private RenderFragment DestPane => @<div>
+        <div class="ls-inspector-title"><div><small>MULTISTREAM</small><h4>پخش هم‌زمان به چند مقصد</h4></div><i class="bi bi-diagram-3"></i></div>
+        <small class="text-secondary d-block mb-2">YouTube همیشه فعال است. مقصدهای فعال زیر هنگام «Go live» هم‌زمان دریافت می‌کنند. کلید پخش رمزنگاری و فقط در بک‌اند نگه‌داری می‌شود.</small>
+        @foreach (var d in Dests)
+        {
+            <div class="sy-dest">
+                <label class="ls-check-row m-0"><input type="checkbox" checked="@d.IsEnabled" @onchange="e => ToggleDestAsync(d, e)" /></label>
+                <div class="flex-fill"><strong>@d.Name</strong><small>@d.Host</small></div>
+                <button class="ls-layer-icon danger" title="حذف" @onclick="() => DeleteDestAsync(d)"><i class="bi bi-trash3"></i></button>
+            </div>
+        }
+        @if (Dests.Count == 0) { <div class="ls-layer-empty">مقصد اضافه‌ای تعریف نشده است.</div> }
+        @if (YouTubeEgressActive) { <small class="d-block text-warning mb-2">تغییر مقصدها از پخش بعدی اعمال می‌شود.</small> }
+        <div class="ls-element-color-title mt-3">افزودن مقصد</div>
+        <select class="form-select form-select-sm" value="@NewPlatform" @onchange="OnPlatformChanged">
+            <option value="twitch">Twitch</option><option value="facebook">Facebook Live</option><option value="aparat">آپارات</option><option value="custom">RTMP دلخواه</option>
+        </select>
+        <input class="form-control form-control-sm mt-2" placeholder="نام نمایشی" @bind="NewName" @bind:event="oninput" />
+        <input class="form-control form-control-sm mt-2" dir="ltr" placeholder="rtmp://..." @bind="NewUrl" @bind:event="oninput" />
+        <input class="form-control form-control-sm mt-2" dir="ltr" type="password" autocomplete="off" placeholder="Stream key" @bind="NewKey" @bind:event="oninput" />
+        <button class="btn btn-sm btn-primary w-100 mt-2" @onclick="AddDestAsync" disabled="@IsBusy"><i class="bi bi-plus-lg ms-1"></i>افزودن</button>
+    </div>;
+
+    private RenderFragment CommentsPane => @<CommentsFeed Api="Api" BroadcastId="@BroadcastId" Active="YouTubeEgressActive" CanModerate="true" OnShow="ShowCommentAsync" OnHide="HideCommentAsync" OnCount="OnCommentCountAsync" />;
+
+    private Task OnCommentCountAsync(int n) { CommentCount = n; return InvokeAsync(StateHasChanged); }
+
+    private RenderFragment SfxPane => @<SoundboardPanel Remote="false" />;
+
+    private RenderFragment RundownPane => @<RundownPanel OwnerId="OwnerId" BroadcastId="@BroadcastId" Remote="false" NowPlaying="@NowPlaying" />;
+
+    private sealed record LiveStatsDto(int ConcurrentViewers, long Views, long Likes, int PeakViewers, int Comments);
+
+    private List<DestinationRow> Dests = [];
+    private int CommentCount;
+    private string? NowPlaying;
+    private LiveStatsDto? Live;
+    private SessionRow? Summary;
+    private string NewPlatform = "twitch", NewName = "Twitch", NewUrl = "rtmp://live.twitch.tv/app", NewKey = "";
+    private CancellationTokenSource? _pollCts;
+    private Task<Guid> UidAsync() => Task.FromResult(OwnerId);
+
+    private async Task LoadDestsAsync() { var u = await UidAsync(); if (u != Guid.Empty) Dests = (await DestSvc.ListAsync(u)).ToList(); }
+    private void OnPlatformChanged(ChangeEventArgs e)
+    {
+        NewPlatform = e.Value?.ToString() ?? "custom";
+        (NewName, NewUrl) = NewPlatform switch
+        {
+            "twitch" => ("Twitch", "rtmp://live.twitch.tv/app"),
+            "facebook" => ("Facebook Live", "rtmps://live-api-s.facebook.com:443/rtmp"),
+            "aparat" => ("آپارات", ""),
+            _ => ("", "")
+        };
+    }
+    private async Task AddDestAsync()
+    {
+        IsBusy = true; ErrorMessage = null;
+        try
+        {
+            var r = await DestSvc.AddAsync(await UidAsync(), NewName, NewPlatform, NewUrl, NewKey);
+            if (!r.Success) throw new InvalidOperationException(r.Error ?? "افزودن مقصد ممکن نشد.");
+            NewKey = ""; await LoadDestsAsync();
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+        finally { IsBusy = false; }
+    }
+    private async Task ToggleDestAsync(DestinationRow d, ChangeEventArgs e)
+    {
+        var on = e.Value is true || string.Equals(e.Value?.ToString(), "true", StringComparison.OrdinalIgnoreCase);
+        var r = await DestSvc.SetEnabledAsync(await UidAsync(), d.Id, on);
+        if (!r.Success) ErrorMessage = r.Error;
+        await LoadDestsAsync();
+    }
+    private async Task DeleteDestAsync(DestinationRow d)
+    {
+        var r = await DestSvc.DeleteAsync(await UidAsync(), d.Id);
+        if (!r.Success) ErrorMessage = r.Error;
+        await LoadDestsAsync();
+    }
+
+    private async Task ShowCommentAsync(CommentsFeed.CommentShow c)
+    {
+        try { await JS.InvokeAsync<object>("studioCompositor.showComment", "live", c.Author, c.Text, c.Amount ?? ""); }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+    }
+    private async Task HideCommentAsync()
+    {
+        try { await JS.InvokeAsync<object>("studioCompositor.hideComment", "live"); }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+    }
+
+    private void StartPolling()
+    {
+        StopPolling();
+        _pollCts = new CancellationTokenSource(); Live = null; Summary = null;
+        _ = PollLoopAsync(_pollCts.Token);
+    }
+    private void StopPolling() { try { _pollCts?.Cancel(); } catch { } _pollCts = null; }
+
+    private async Task PollLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var sr = await Api.PostAsync($"/api/v1/youtube/broadcasts/{Uri.EscapeDataString(BroadcastId)}/stats", null, ct);
+                if (sr.IsSuccessStatusCode) { Live = await sr.Content.ReadFromJsonAsync<LiveStatsDto>(JsonOptions, ct); await InvokeAsync(StateHasChanged); }
+            }
+            catch (OperationCanceledException) { break; }
+            catch { }
+            try { await Task.Delay(TimeSpan.FromSeconds(30), ct); } catch (OperationCanceledException) { break; }
+        }
+    }
+
+    private async Task LoadSummaryAsync()
+    {
+        try { var u = await UidAsync(); if (u != Guid.Empty) Summary = await SessionSvc.GetLatestAsync(u, BroadcastId); } catch { }
+    }
+
+    [Parameter] public string BroadcastId { get; set; } = string.Empty;
+
+    private readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private StudioContext? _ctx;
+    private bool Denied;
+    private Guid OwnerId => _ctx?.OwnerId ?? Guid.Empty;
+    [SupplyParameterFromQuery(Name = "owner")] public Guid? Owner { get; set; }
+    private HttpClient Api => _ctx?.Api ?? TenantApi.Client;
+    private bool IsConnected, IsBusy, CameraEnabled, MicrophoneEnabled, ScreenShareEnabled, ProgramOutputEnabled, YouTubeEgressActive;
+    private string YouTubeEgressStatusText = "شروع نشده";
+    private string StatusText = "آماده اتصال";
+    private string? ErrorMessage, SuccessMessage, SelectedCamera, SelectedMicrophone;
+    private List<MediaDeviceDto> Cameras = [];
+    private List<MediaDeviceDto> Microphones = [];
+    private DotNetObjectReference<Studio>? _statusReference;
+    private int ChatUnread;
+
+    private IReadOnlyList<LiveStudio.Web.Components.Shared.StudioComposerPanel.RailExtra> LiveExtras =>
+    [
+        new("devices", "bi-hdd-network", "دستگاه‌ها"),
+        new("chat", "bi-chat-dots", "چت", ChatUnread),
+        new("audio", "bi-soundwave", "صدا"),
+        new("sfx", "bi-music-note-beamed", "جلوه‌ها"),
+        new("rundown", "bi-collection-play", "برنامه‌ی ویدئو"),
+        new("dest", "bi-diagram-3", "مقصدها"),
+        new("comments", "bi-chat-square-quote", "کامنت‌ها", CommentCount),
+        new("status", "bi-activity", "وضعیت")
+    ];
+
+    private RenderFragment ExtraPaneBody(string key) => key switch
+    {
+        "devices" => DevicesPane,
+        "chat" => ChatPane,
+        "audio" => AudioPane,
+        "sfx" => SfxPane,
+        "rundown" => RundownPane,
+        "dest" => DestPane,
+        "comments" => CommentsPane,
+        "status" => StatusPane,
+        _ => b => { }
+    };
+    private RenderFragment<string> ExtraPane => key => ExtraPaneBody(key);
+
+    private async Task GoLiveAsync()
+    {
+        if (!ProgramOutputEnabled && CameraEnabled) await ToggleProgramOutputAsync();
+        if (ProgramOutputEnabled && ErrorMessage is null) await StartYouTubeEgressAsync();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _ctx = await Access.ResolveAsync(Owner);
+        if (_ctx is null) { Denied = true; return; }
+        if (_ctx.Role != StudioRoles.Host) { Navigation.NavigateTo($"/studio/{Uri.EscapeDataString(BroadcastId)}/console?owner={_ctx.OwnerId}", replace: true); return; }
+        await LoadDestsAsync();
+        await RefreshYouTubeEgressStatusAsync();
+    }
+
+    private async Task StartYouTubeEgressAsync()
+    {
+        if (!ProgramOutputEnabled)
+        {
+            ErrorMessage = "ابتدا خروجی Program را فعال کن.";
+            return;
+        }
+
+        IsBusy = true; ErrorMessage = null; SuccessMessage = null;
+        try
+        {
+            var response = await Api.PostAsync($"/api/v1/youtube/broadcasts/{Uri.EscapeDataString(BroadcastId)}/egress/start", null);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(await ExtractErrorAsync(response));
+
+            var status = await response.Content.ReadFromJsonAsync<EgressStatusDto>(JsonOptions)
+                ?? throw new InvalidOperationException("پاسخ وضعیت Egress معتبر نیست.");
+            ApplyEgressStatus(status);
+            SuccessMessage = status.DestinationCount > 1 ? $"پخش هم‌زمان به {status.DestinationCount} مقصد در حال راه‌اندازی است." : "خروجی Program به سرویس LiveKit Egress ارسال شد؛ اتصال RTMP به YouTube در حال راه‌اندازی است.";
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+        finally { IsBusy = false; }
+    }
+
+    private async Task StopYouTubeEgressAsync()
+    {
+        IsBusy = true; ErrorMessage = null;
+        try
+        {
+            var response = await Api.PostAsync($"/api/v1/youtube/broadcasts/{Uri.EscapeDataString(BroadcastId)}/egress/stop", null);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(await ExtractErrorAsync(response));
+            var status = await response.Content.ReadFromJsonAsync<EgressStatusDto>(JsonOptions);
+            if (status is not null) ApplyEgressStatus(status);
+            SuccessMessage = "خروجی RTMP متوقف شد.";
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+        finally { IsBusy = false; }
+    }
+
+    private sealed record FinalizeDto(string? Status, bool KeepArchive, bool ArchiveDeleted);
+
+    private async Task EndBroadcastAsync()
+    {
+        var ok = await JS.InvokeAsync<bool>("confirm", "لایو به‌طور کامل در یوتیوب پایان می‌یابد و دیگر قابل ادامه نیست. ادامه می‌دهید؟");
+        if (!ok) return;
+        IsBusy = true; ErrorMessage = null; SuccessMessage = null;
+        try
+        {
+            if (YouTubeEgressActive) await StopYouTubeEgressCoreAsync();
+            var response = await Api.PostAsync($"/api/v1/youtube/broadcasts/{Uri.EscapeDataString(BroadcastId)}/finalize", null);
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException(await ExtractErrorAsync(response));
+            var r = await response.Content.ReadFromJsonAsync<FinalizeDto>(JsonOptions);
+            SuccessMessage = r is { ArchiveDeleted: true } ? "لایو پایان یافت و ضبط آن طبق انتخاب شما از یوتیوب حذف شد." : "لایو پایان یافت و ضبط آن در کانال یوتیوب شما ذخیره می‌شود.";
+            await LoadSummaryAsync();
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+        finally { IsBusy = false; }
+    }
+
+    private async Task StopYouTubeEgressCoreAsync()
+    {
+        var response = await Api.PostAsync($"/api/v1/youtube/broadcasts/{Uri.EscapeDataString(BroadcastId)}/egress/stop", null);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await ExtractErrorAsync(response));
+        var status = await response.Content.ReadFromJsonAsync<EgressStatusDto>(JsonOptions);
+        if (status is not null) ApplyEgressStatus(status);
+    }
+
+    private async Task RefreshYouTubeEgressStatusAsync()
+    {
+        try
+        {
+            var response = await Api.GetAsync($"/api/v1/youtube/broadcasts/{Uri.EscapeDataString(BroadcastId)}/egress");
+            if (!response.IsSuccessStatusCode) return;
+            var status = await response.Content.ReadFromJsonAsync<EgressStatusDto>(JsonOptions);
+            if (status is not null) ApplyEgressStatus(status);
+        }
+        catch { }
+    }
+
+    private void ApplyEgressStatus(EgressStatusDto status)
+    {
+        var was = YouTubeEgressActive;
+        YouTubeEgressActive = status.IsRunning;
+        if (YouTubeEgressActive && !was) StartPolling();
+        else if (!YouTubeEgressActive && was) { StopPolling(); Live = null; _ = LoadSummaryAsync().ContinueWith(_ => InvokeAsync(StateHasChanged)); }
+        YouTubeEgressStatusText = status.Status switch
+        {
+            "EGRESS_STARTING" => "در حال شروع",
+            "EGRESS_ACTIVE" => "در حال پخش",
+            "EGRESS_ENDING" => "در حال توقف",
+            "EGRESS_COMPLETE" => "متوقف",
+            "EGRESS_FAILED" => "خطا",
+            "EGRESS_ABORTED" => "لغو شده",
+            "NOT_STARTED" => "شروع نشده",
+            _ => status.Status
+        };
+        if (!string.IsNullOrWhiteSpace(status.Error))
+            ErrorMessage = status.Error;
+    }
+
+    private async Task ConnectAsync()
+    {
+        IsBusy = true; ErrorMessage = null; SuccessMessage = null;
+        try
+        {
+            try { await JS.InvokeVoidAsync("lsLobby.stop"); } catch { }
+            var response = await Api.PostAsJsonAsync("/api/v1/livekit/sessions", new { BroadcastId, DisplayName = _ctx?.UserName }, JsonOptions);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(await ExtractErrorAsync(response));
+            var session = await response.Content.ReadFromJsonAsync<LiveKitSessionResponse>(JsonOptions)
+                ?? throw new InvalidOperationException("پاسخ سرور برای نشست LiveKit معتبر نیست.");
+
+            _statusReference ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("liveStudio.setStatusHandler", _statusReference);
+            await JS.InvokeVoidAsync("lsTeam.setNotify", _statusReference);
+            await JS.InvokeAsync<string>("liveStudio.connect", session.Url, session.Token, "cameraPreview");
+            if (!string.IsNullOrWhiteSpace(SelectedCamera)) { try { await JS.InvokeVoidAsync("liveStudio.selectCamera", SelectedCamera); } catch { } }
+            if (!string.IsNullOrWhiteSpace(SelectedMicrophone)) { try { await JS.InvokeVoidAsync("liveStudio.selectMicrophone", SelectedMicrophone); } catch { } }
+            IsConnected = true;
+            CameraEnabled = true;
+            MicrophoneEnabled = true;
+            StatusText = "به LiveKit متصل است";
+            await RefreshDevicesAsync();
+            SuccessMessage = "اتصال برقرار شد؛ تصویر دوربین و صدای میکروفن در اتاق اختصاصی منتشر می‌شوند.";
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; StatusText = "خطا در اتصال"; }
+        finally { IsBusy = false; }
+    }
+
+    private async Task ToggleCameraAsync()
+    {
+        await RunDeviceActionAsync(async () =>
+        {
+            if (ProgramOutputEnabled) { if (YouTubeEgressActive) await StopYouTubeEgressCoreAsync(); await JS.InvokeVoidAsync("liveStudio.stopProgramOutput"); ProgramOutputEnabled = false; }
+            CameraEnabled = await JS.InvokeAsync<bool>("liveStudio.setCamera", !CameraEnabled, SelectedCamera);
+        });
+    }
+
+    private async Task ToggleMicrophoneAsync()
+    {
+        await RunDeviceActionAsync(async () =>
+        {
+            MicrophoneEnabled = await JS.InvokeAsync<bool>("liveStudio.setMicrophone", !MicrophoneEnabled, SelectedMicrophone);
+        });
+    }
+
+    private async Task ToggleScreenShareAsync()
+    {
+        await RunDeviceActionAsync(async () =>
+        {
+            ScreenShareEnabled = await JS.InvokeAsync<bool>("liveStudio.setScreenShare", !ScreenShareEnabled);
+        });
+    }
+
+    private async Task ToggleProgramOutputAsync()
+    {
+        await RunDeviceActionAsync(async () =>
+        {
+            if (ProgramOutputEnabled)
+            {
+                if (YouTubeEgressActive) await StopYouTubeEgressCoreAsync();
+                await JS.InvokeVoidAsync("liveStudio.stopProgramOutput");
+                ProgramOutputEnabled = false;
+                SuccessMessage = "خروجی گرافیکی متوقف شد و تصویر خام دوربین دوباره منتشر می‌شود.";
+            }
+            else
+            {
+                await JS.InvokeAsync<bool>("liveStudio.startProgramOutput");
+                ProgramOutputEnabled = true;
+                SuccessMessage = "خروجی گرافیکی Media Box به‌عنوان تصویر دوربین در اتاق LiveKit منتشر می‌شود.";
+            }
+        });
+    }
+
+    private async Task OnCameraChanged(ChangeEventArgs args)
+    {
+        SelectedCamera = args.Value?.ToString();
+        if (IsConnected && !string.IsNullOrWhiteSpace(SelectedCamera))
+            await RunDeviceActionAsync(async () =>
+            {
+                if (ProgramOutputEnabled) { if (YouTubeEgressActive) await StopYouTubeEgressCoreAsync(); await JS.InvokeVoidAsync("liveStudio.stopProgramOutput"); ProgramOutputEnabled = false; }
+                await JS.InvokeVoidAsync("liveStudio.selectCamera", SelectedCamera);
+            });
+    }
+
+    private async Task OnMicrophoneChanged(ChangeEventArgs args)
+    {
+        SelectedMicrophone = args.Value?.ToString();
+        if (IsConnected && !string.IsNullOrWhiteSpace(SelectedMicrophone))
+            await RunDeviceActionAsync(async () => { await JS.InvokeVoidAsync("liveStudio.selectMicrophone", SelectedMicrophone); });
+    }
+
+    // ---- Lobby (preview + device test before joining) ----
+    private sealed record LobbyDevices(List<MediaDeviceDto> Cameras, List<MediaDeviceDto> Microphones, List<MediaDeviceDto> Speakers);
+    private sealed record LobbyResult(bool Camera, bool Microphone, bool Secure, string? Error, int Width, int Height);
+    private bool LobbyTested, LobbyCamOk, LobbyMicOk, LobbySecure = true, _lobbyStarted;
+    private string LobbyRes = "", LobbyError = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsConnected || Denied || _ctx is null || _lobbyStarted) return;
+        _lobbyStarted = true;
+        await LobbyStartAsync();
+    }
+
+    private async Task LobbyStartAsync(string? facing = null)
+    {
+        try
+        {
+            var r = await JS.InvokeAsync<LobbyResult>("lsLobby.start", SelectedCamera, SelectedMicrophone, facing);
+            LobbyTested = true; LobbyCamOk = r.Camera; LobbyMicOk = r.Microphone; LobbySecure = r.Secure; LobbyError = r.Error ?? "";
+            LobbyRes = r.Width > 0 ? $"{r.Width}×{r.Height}" : "";
+            var d = await JS.InvokeAsync<LobbyDevices>("lsLobby.devices");
+            Cameras = d.Cameras; Microphones = d.Microphones;
+            SelectedCamera ??= Cameras.FirstOrDefault()?.DeviceId; SelectedMicrophone ??= Microphones.FirstOrDefault()?.DeviceId;
+        }
+        catch (Exception ex) { LobbyError = ex.Message; LobbyTested = true; }
+        StateHasChanged();
+    }
+    private async Task LobbyCameraChanged(ChangeEventArgs e) { SelectedCamera = e.Value?.ToString(); await LobbyStartAsync(); }
+    private async Task LobbyMicChanged(ChangeEventArgs e) { SelectedMicrophone = e.Value?.ToString(); await LobbyStartAsync(); }
+    private async Task LobbyFlipAsync() { SelectedCamera = null; _facingBack = !_facingBack; await LobbyStartAsync(_facingBack ? "environment" : "user"); }
+    private bool _facingBack;
+    private async Task LobbyRetryAsync() => await LobbyStartAsync();
+    private async Task LobbySpeakerAsync() { try { await JS.InvokeVoidAsync("lsSfx.init"); await JS.InvokeVoidAsync("lsLobby.speakerTest"); } catch (Exception ex) { LobbyError = ex.Message; } }
+
+    // ---- Theme / phone mode / team events ----
+    private sealed record Prefs(string Theme, string Phone);
+    private async Task ToggleThemeAsync()
+    {
+        var p = await JS.InvokeAsync<Prefs>("lsPrefs.get");
+        await JS.InvokeVoidAsync("lsPrefs.set", new { theme = p.Theme == "light" ? "dark" : "light" });
+    }
+    private async Task TogglePhoneAsync()
+    {
+        var p = await JS.InvokeAsync<Prefs>("lsPrefs.get");
+        await JS.InvokeVoidAsync("lsPrefs.set", new { phone = p.Phone == "on" ? "off" : "on" });
+    }
+    [JSInvokable] public Task OnTeamEvent(string text) { SuccessMessage = text; return InvokeAsync(StateHasChanged); }
+    [JSInvokable] public Task OnHostState(string json)
+    {
+        try { using var doc = JsonDocument.Parse(json); NowPlaying = doc.RootElement.TryGetProperty("media", out var m) && m.ValueKind == JsonValueKind.Object ? m.GetProperty("title").GetString() : null; } catch { }
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnLiveKitStatusChanged(string state, string message)
+    {
+        await InvokeAsync(() =>
+        {
+            switch (state)
+            {
+                case "connected":
+                    IsConnected = true; StatusText = "به LiveKit متصل است";
+                    break;
+                case "connecting":
+                    StatusText = "در حال اتصال";
+                    break;
+                case "reconnecting":
+                    StatusText = "در حال بازیابی اتصال";
+                    ErrorMessage = null;
+                    break;
+                case "disconnected":
+                    IsConnected = false;
+                    CameraEnabled = MicrophoneEnabled = ScreenShareEnabled = ProgramOutputEnabled = false;
+                    StatusText = "اتصال قطع شد";
+                    if (!string.IsNullOrWhiteSpace(message)) ErrorMessage = message;
+                    break;
+                case "device-error":
+                case "error":
+                    ErrorMessage = message;
+                    break;
+            }
+            StateHasChanged();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnLiveKitDevicesChanged()
+    {
+        if (!IsConnected) return;
+        try { await InvokeAsync(RefreshDevicesAsync); }
+        catch (JSDisconnectedException) { }
+    }
+
+    private async Task RefreshDevicesAsync()
+    {
+        var devices = await JS.InvokeAsync<DeviceListDto>("liveStudio.getDevices");
+        Cameras = devices.Cameras;
+        Microphones = devices.Microphones;
+        SelectedCamera ??= Cameras.FirstOrDefault()?.DeviceId;
+        SelectedMicrophone ??= Microphones.FirstOrDefault()?.DeviceId;
+    }
+
+    private async Task RunDeviceActionAsync(Func<Task> action)
+    {
+        IsBusy = true; ErrorMessage = null;
+        try { await action(); }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+        finally { IsBusy = false; }
+    }
+
+    private async Task DisconnectAsync()
+    {
+        IsBusy = true;
+        try
+        {
+            if (YouTubeEgressActive) await StopYouTubeEgressCoreAsync();
+            await JS.InvokeVoidAsync("lsTeam.hostStop");
+            await JS.InvokeVoidAsync("liveStudio.disconnect");
+            IsConnected = CameraEnabled = MicrophoneEnabled = ScreenShareEnabled = ProgramOutputEnabled = false;
+            StatusText = "اتصال قطع شد";
+            Cameras.Clear(); Microphones.Clear();
+            SelectedCamera = SelectedMicrophone = null;
+            _lobbyStarted = false;
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+        finally { IsBusy = false; }
+    }
+
+    private static async Task<string> ExtractErrorAsync(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("detail", out var detail)) return detail.GetString() ?? body;
+            if (doc.RootElement.TryGetProperty("error", out var error)) return error.GetString() ?? body;
+        }
+        catch { }
+        return string.IsNullOrWhiteSpace(body) ? $"خطای سرور: {(int)response.StatusCode}" : body;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("liveStudio.setStatusHandler", (object?)null); }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+        try { await JS.InvokeVoidAsync("liveStudio.disconnect"); }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+        StopPolling();
+        try { await JS.InvokeVoidAsync("lsLobby.stop"); await JS.InvokeVoidAsync("lsTeam.hostStop"); } catch (JSDisconnectedException) { } catch (InvalidOperationException) { }
+        _statusReference?.Dispose();
+        _statusReference = null;
+    }
+
+    private sealed record LiveKitSessionResponse(string Url, string Token, string RoomName, string ParticipantIdentity, DateTimeOffset ExpiresAt);
+    private sealed record EgressStatusDto(bool IsRunning, string? EgressId, string Status, string? Error, int DestinationCount = 0);
+    private sealed record MediaDeviceDto(string DeviceId, string Label);
+    private sealed record DeviceListDto(List<MediaDeviceDto> Cameras, List<MediaDeviceDto> Microphones);
+}

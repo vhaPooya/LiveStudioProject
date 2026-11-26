@@ -1,0 +1,53 @@
+@page "/admin/tickets/{Id:guid}"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:tickets")]
+@inject CurrentUser Me
+@inject ITicketService TicketSvc
+
+<PageTitle>تیکت | مدیریت LiveStudio</PageTitle>
+@if (_detail is null) { <div class="loading-panel">@(_loaded ? "تیکت پیدا نشد." : "در حال بارگذاری...")</div><a class="btn btn-outline-secondary" href="/admin/tickets">بازگشت</a> }
+else
+{
+    <header class="topbar"><div><div class="eyebrow">TICKET #@_detail.Ticket.Number</div><h1>@_detail.Ticket.Subject</h1></div>
+        <div class="top-actions"><span class="b @Fa.TicketStatusClass(_detail.Ticket.Status)">@Fa.TicketStatusText(_detail.Ticket.Status)</span><a class="btn btn-outline-secondary" href="/admin/tickets">بازگشت</a></div></header>
+    <div class="ticket-meta">
+        <span><i class="bi bi-person"></i><a href="/admin/users/@_detail.User.Id">@_detail.User.FullName</a> · <span class="ltr-text">@_detail.User.Mobile</span></span>
+        <span><i class="bi bi-building"></i>@Fa.Department(_detail.Ticket.Department)</span><span><i class="bi bi-clock"></i>@Fa.Date(_detail.Ticket.CreatedAt, true)</span>
+        <label class="inline-select">اولویت <select class="form-select form-select-sm" @onchange="OnPriority">@foreach (var p in Enum.GetValues<TicketPriority>()) { <option value="@((int)p)" selected="@(p == _detail.Ticket.Priority)">@Fa.Priority(p)</option> }</select></label>
+        <label class="inline-select">وضعیت <select class="form-select form-select-sm" @onchange="OnStatus">@foreach (var s in Enum.GetValues<TicketStatus>()) { <option value="@((int)s)" selected="@(s == _detail.Ticket.Status)">@Fa.TicketStatusText(s)</option> }</select></label>
+    </div>
+    <Notice Error="@_error" />
+    <section class="chat">
+        @foreach (var m in _detail.Messages)
+        {
+            <div class="msg @(m.IsStaff ? "mine" : "staff")"><div class="msg-head"><strong>@(m.IsStaff ? m.SenderName + " (پشتیبانی)" : m.SenderName)</strong><small>@Fa.Date(m.CreatedAt, true)</small></div><div class="msg-body">@m.Body</div></div>
+        }
+    </section>
+    <section class="panel mt-3">
+        <textarea class="form-control" rows="4" maxlength="5000" @bind="_reply" @bind:event="oninput" placeholder="پاسخ به مشتری..."></textarea>
+        <div class="btn-row mt-3"><button class="btn btn-primary" @onclick="SendAsync" disabled="@(_busy || _reply.Trim().Length < 2)"><i class="bi bi-send ms-1"></i>ارسال پاسخ</button>
+            <button class="btn btn-outline-secondary" @onclick="() => SetStatus(TicketStatus.Closed)" disabled="@_busy"><i class="bi bi-check2-circle ms-1"></i>بستن تیکت</button></div>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private TicketDetail? _detail;
+    private bool _loaded, _busy;
+    private string _reply = string.Empty;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync() { _detail = await TicketSvc.GetAsync(Id, null); _loaded = true; }
+
+    private async Task SendAsync()
+    {
+        _busy = true; _error = null;
+        var result = await TicketSvc.ReplyAsync(Id, null, true, await Me.NameAsync(), _reply);
+        if (result.Success) { _reply = string.Empty; _detail = await TicketSvc.GetAsync(Id, null); } else _error = result.Error;
+        _busy = false;
+    }
+
+    private async Task SetStatus(TicketStatus status) { _busy = true; await TicketSvc.SetStatusAsync(Id, status, await Me.ActorAsync()); _detail = await TicketSvc.GetAsync(Id, null); _busy = false; }
+    private async Task OnStatus(ChangeEventArgs e) { if (int.TryParse(e.Value?.ToString(), out var v)) await SetStatus((TicketStatus)v); }
+    private async Task OnPriority(ChangeEventArgs e) { if (int.TryParse(e.Value?.ToString(), out var v)) { await TicketSvc.SetPriorityAsync(Id, (TicketPriority)v, await Me.ActorAsync()); _detail = await TicketSvc.GetAsync(Id, null); } }
+}

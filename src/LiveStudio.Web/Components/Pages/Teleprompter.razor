@@ -1,0 +1,124 @@
+@page "/teleprompter"
+@attribute [Authorize(Policy = "Customer")]
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<PageTitle>تله‌پرومپتر هوشمند | LiveStudio</PageTitle>
+
+<header class="topbar studio-topbar">
+    <div>
+        <div class="eyebrow">LIVESTUDIO / CREATOR TOOLS</div>
+        <h1>تله‌پرومپتر هوشمند</h1>
+        <p class="studio-subtitle">متن اجرا را آماده کن، سرعت حرکت را تنظیم کن و بدون قطع ارتباط چشمی با دوربین بخوان.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/creator"><i class="bi bi-camera-reels ms-1"></i>بازگشت به استودیوی تولید محتوا</a>
+</header>
+
+@if (!string.IsNullOrWhiteSpace(Message))
+{
+    <div class="notice notice-success">@Message</div>
+}
+<div class="teleprompter-workspace">
+    <section class="panel teleprompter-editor-panel">
+        <div class="panel-heading"><div><div class="eyebrow">YOUR SCRIPT</div><h3>متن سناریو</h3></div><span class="count-pill">@WordCount کلمه</span></div>
+        <textarea class="form-control teleprompter-editor" @bind="Script" @bind:event="oninput" @bind:after="SyncDisplay" placeholder="متن سخنرانی، آموزش یا سناریوی خود را اینجا وارد کنید..." spellcheck="false"></textarea>
+        <div class="teleprompter-editor-actions">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadSample"><i class="bi bi-file-earmark-text ms-1"></i>متن نمونه</button>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="ClearScript"><i class="bi bi-trash ms-1"></i>پاک‌کردن متن</button>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="CopyScript"><i class="bi bi-clipboard ms-1"></i>کپی متن</button>
+        </div>
+        <div class="form-text mt-2">متن فقط در همین صفحه نگهداری می‌شود. برای نگهداری دائمی، آن را کپی و در فایل خود ذخیره کنید.</div>
+    </section>
+
+    <section class="panel teleprompter-stage-panel">
+        <div class="panel-heading"><div><div class="eyebrow">READING DISPLAY</div><h3>نمایشگر مجری</h3></div><span class="status-pill" id="tpState">متوقف</span></div>
+        <div class="teleprompter-stage" id="teleprompterStage">
+            <div class="teleprompter-reading" id="teleprompterReading">@(!string.IsNullOrWhiteSpace(Script) ? Script : "متن سناریو در این قسمت نمایش داده می‌شود. متن خود را در کادر سمت راست وارد کنید.")</div>
+            <div class="teleprompter-guide"></div>
+        </div>
+        <div class="teleprompter-controls">
+            <button class="btn btn-primary" @onclick="ToggleRun"><i class="bi bi-play-fill ms-1"></i>@(IsRunning ? "توقف حرکت" : "شروع حرکت")</button>
+            <button class="btn btn-outline-secondary" @onclick="ResetScroll"><i class="bi bi-arrow-counterclockwise ms-1"></i>ابتدای متن</button>
+            <button class="btn btn-outline-secondary" @onclick="ToggleMirror"><i class="bi bi-arrow-left-right ms-1"></i>@(Mirrored ? "لغو آینه‌ای" : "نمایش آینه‌ای")</button>
+            <button class="btn btn-outline-secondary" @onclick="Fullscreen"><i class="bi bi-fullscreen ms-1"></i>تمام‌صفحه</button>
+        </div>
+    </section>
+
+    <section class="panel teleprompter-settings-panel">
+        <div class="panel-heading"><div><div class="eyebrow">READING SETTINGS</div><h3>تنظیمات خواندن</h3></div><i class="bi bi-sliders"></i></div>
+        <div class="tp-setting">
+            <label for="tpSpeed">سرعت حرکت متن <strong>@Speed px/s</strong></label>
+            <input id="tpSpeed" class="form-range" type="range" min="10" max="180" step="5" @bind="Speed" @bind:event="oninput" @bind:after="ApplySettings" />
+            <div class="tp-range-labels"><span>آهسته</span><span>سریع</span></div>
+        </div>
+        <div class="tp-setting">
+            <label for="tpFont">اندازه نوشته <strong>@FontSize px</strong></label>
+            <input id="tpFont" class="form-range" type="range" min="22" max="64" step="2" @bind="FontSize" @bind:event="oninput" @bind:after="ApplySettings" />
+        </div>
+        <div class="tp-setting">
+            <label for="tpLine">فاصله خطوط <strong>@LineSpacing</strong></label>
+            <input id="tpLine" class="form-range" type="range" min="1.3" max="2.8" step="0.1" @bind="LineSpacing" @bind:event="oninput" @bind:after="ApplySettings" />
+        </div>
+        <div class="tp-shortcuts">
+            <strong><i class="bi bi-keyboard ms-1"></i>میانبرهای صفحه‌کلید</strong>
+            <div><kbd>Space</kbd><span>شروع / توقف</span></div>
+            <div><kbd>↑</kbd><span>افزایش سرعت</span></div>
+            <div><kbd>↓</kbd><span>کاهش سرعت</span></div>
+            <div><kbd>Home</kbd><span>بازگشت به ابتدای متن</span></div>
+        </div>
+    </section>
+</div>
+
+@code {
+    private string Script = "به LiveStudio خوش آمدید!\n\nاینجا متن سناریوی برنامه خود را وارد کنید. با تنظیم سرعت و اندازه نوشته، اجرای خود را متناسب با ریتم صحبتتان پیش ببرید.\n\nبرای شروع، دکمه شروع حرکت را انتخاب کنید. هر زمان خواستید می‌توانید حرکت را متوقف کنید یا به ابتدای متن برگردید.";
+    private int Speed = 45;
+    private int FontSize = 36;
+    private double LineSpacing = 2.0;
+    private bool IsRunning;
+    private bool Mirrored;
+    private string? Message;
+    private int WordCount => System.Text.RegularExpressions.Regex.Matches(Script ?? "", @"\S+").Count;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await SyncDisplay();
+    }
+
+    private async Task SyncDisplay()
+    {
+        try { await JS.InvokeVoidAsync("liveStudioTeleprompter.setText", Script, Speed, FontSize, LineSpacing); }
+        catch (InvalidOperationException) { }
+    }
+    private async Task ToggleRun()
+    {
+        if (!IsRunning && string.IsNullOrWhiteSpace(Script)) { Message = "ابتدا متن سناریو را وارد کنید."; return; }
+        IsRunning = !IsRunning;
+        await JS.InvokeVoidAsync("liveStudioTeleprompter.toggle", IsRunning, Speed);
+    }
+    private async Task ResetScroll()
+    {
+        IsRunning = false;
+        await JS.InvokeVoidAsync("liveStudioTeleprompter.reset");
+    }
+    private async Task ToggleMirror()
+    {
+        Mirrored = !Mirrored;
+        await JS.InvokeVoidAsync("liveStudioTeleprompter.mirror", Mirrored);
+    }
+    private async Task Fullscreen() => await JS.InvokeVoidAsync("liveStudioTeleprompter.fullscreen");
+    private async Task ApplySettings() => await SyncDisplay();
+    private async Task LoadSample()
+    {
+        Script = "سلام و وقت بخیر.\n\nبه برنامه امروز خوش آمدید. در این قسمت قرار است درباره موضوع اصلی برنامه صحبت کنیم و نکات مهم را با مثال‌های کاربردی بررسی کنیم.\n\nدر پایان، جمع‌بندی کوتاهی خواهیم داشت و به پرسش‌های شما پاسخ می‌دهیم. ممنون که همراه ما هستید.";
+        await SyncDisplay();
+    }
+    private async Task ClearScript() { Script = ""; IsRunning = false; await JS.InvokeVoidAsync("liveStudioTeleprompter.reset"); await SyncDisplay(); }
+    private async Task CopyScript() { await JS.InvokeVoidAsync("liveStudioTeleprompter.copy", Script); Message = "متن سناریو کپی شد."; }
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("liveStudioTeleprompter.dispose"); }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+    }
+}

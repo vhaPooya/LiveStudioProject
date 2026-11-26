@@ -1,0 +1,85 @@
+@inject IJSRuntime JS
+
+<Collapsible Panel="true" Id='@($"audio:{StudioName}")' Title="میکسر حرفه‌ای صدا" Eyebrow='@($"SHARED AUDIO ENGINE / {StudioName}")' Icon="bi-soundwave" Class="audio-panel studio-audio-mixer">
+    <Actions><span class="status-pill">@(_saved ? "PROFILE SAVED" : "EDITING")</span></Actions>
+    <ChildContent>
+    <div class="audio-inline-grid">
+        <div class="audio-slider-row">
+            <label>Gain ورودی <strong>@Config.InputGain%</strong></label>
+            <input class="form-range" type="range" min="0" max="200" step="1" @bind="Config.InputGain" @bind:event="oninput" />
+        </div>
+        <div class="audio-slider-row">
+            <label>حذف فرکانس بم <strong>@Config.HighPass Hz</strong></label>
+            <input class="form-range" type="range" min="20" max="300" step="5" @bind="Config.HighPass" @bind:event="oninput" />
+        </div>
+    </div>
+    <div class="audio-eq-grid audio-eq-inline">
+        <div class="audio-eq-control"><div class="eq-value">@Signed(Config.LowGain) dB</div><input aria-label="باس" class="eq-range" type="range" min="-12" max="12" @bind="Config.LowGain" @bind:event="oninput" /><strong>باس</strong></div>
+        <div class="audio-eq-control"><div class="eq-value">@Signed(Config.MidGain) dB</div><input aria-label="مید" class="eq-range" type="range" min="-12" max="12" @bind="Config.MidGain" @bind:event="oninput" /><strong>مید</strong></div>
+        <div class="audio-eq-control"><div class="eq-value">@Signed(Config.HighGain) dB</div><input aria-label="های" class="eq-range" type="range" min="-12" max="12" @bind="Config.HighGain" @bind:event="oninput" /><strong>های</strong></div>
+    </div>
+    <div class="audio-inline-options">
+        <label class="scene-toggle"><input type="checkbox" @bind="Config.Enabled" /> پردازش صدا</label>
+        <label class="scene-toggle"><input type="checkbox" @bind="Config.Compressor" /> کمپرسور</label>
+        <label class="scene-toggle"><input type="checkbox" @bind="Config.NoiseSuppression" /> کاهش نویز</label>
+        <label class="scene-toggle"><input type="checkbox" @bind="Config.EchoCancellation" /> حذف اکو</label>
+        <label class="scene-toggle"><input type="checkbox" @bind="Config.AutoGainControl" /> کنترل خودکار Gain</label>
+    </div>
+    <div class="audio-inline-grid">
+        <div class="audio-slider-row">
+            <label>Threshold <strong>@Config.Threshold dB</strong></label>
+            <input class="form-range" type="range" min="-60" max="0" @bind="Config.Threshold" @bind:event="oninput" disabled="@(!Config.Compressor)" />
+        </div>
+        <div class="audio-slider-row">
+            <label>Ratio <strong>@Config.Ratio.ToString("0.#"):1</strong></label>
+            <input class="form-range" type="range" min="1" max="20" step="0.5" @bind="Config.Ratio" @bind:event="oninput" disabled="@(!Config.Compressor)" />
+        </div>
+    </div>
+    <div class="audio-preset-row">
+        <button class="btn btn-sm btn-outline-secondary" @onclick="VoicePreset">گفتار</button>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="PodcastPreset">پادکست گرم</button>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="FlatPreset">صدای خنثی</button>
+        <button class="btn btn-sm btn-primary me-auto" @onclick="SaveAsync" disabled="@Saving"><i class="bi bi-check2-circle ms-1"></i>@(Saving ? "در حال اعمال..." : "ذخیره و اعمال در استودیو")</button>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(Notice)) { <div class="notice @(IsError ? "notice-error" : "notice-success") mt-3">@Notice</div> }
+    <div class="form-text mt-2">این پروفایل مشترک است؛ با ذخیره، تنظیمات در ضبط Creator و ترک میکروفون LiveKit اعمال می‌شود. پردازش مرورگر به قابلیت‌های پشتیبانی‌شده دستگاه و مرورگر وابسته است.</div>
+    </ChildContent>
+</Collapsible>
+
+@code {
+    [Parameter] public string StudioName { get; set; } = "STUDIO";
+    private AudioConfig Config = new();
+    private bool Saving, _saved = true, IsError;
+    private string? Notice;
+    private static string Signed(int value) => value > 0 ? "+" + value : value.ToString();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try { Config = await JS.InvokeAsync<AudioConfig>("audioMixer.load"); StateHasChanged(); }
+        catch (Exception ex) { Notice = "بارگذاری پروفایل صدا ناموفق بود: " + ex.Message; IsError = true; StateHasChanged(); }
+    }
+    private async Task SaveAsync()
+    {
+        Saving = true; IsError = false; Notice = null;
+        try
+        {
+            Config = await JS.InvokeAsync<AudioConfig>("audioMixer.save", Config);
+            try { await JS.InvokeVoidAsync("liveStudio.refreshMicrophoneProcessing"); } catch (JSException) { }
+            _saved = true; Notice = "پروفایل ذخیره و روی ورودی‌های فعال اعمال شد.";
+        }
+        catch (Exception ex) { IsError = true; Notice = "اعمال تنظیمات ناموفق بود: " + ex.Message; }
+        finally { Saving = false; }
+    }
+    private void VoicePreset() { Config.LowGain = -2; Config.MidGain = 3; Config.HighGain = 2; Config.HighPass = 90; Config.Compressor = true; Config.Threshold = -25; Config.Ratio = 3; _saved = false; }
+    private void PodcastPreset() { Config.LowGain = 2; Config.MidGain = 1; Config.HighGain = -1; Config.HighPass = 75; Config.Compressor = true; Config.Threshold = -28; Config.Ratio = 2.5; _saved = false; }
+    private void FlatPreset() { Config.LowGain = 0; Config.MidGain = 0; Config.HighGain = 0; Config.HighPass = 80; Config.Compressor = false; _saved = false; }
+
+    public sealed class AudioConfig
+    {
+        public bool Enabled { get; set; } = true; public int InputGain { get; set; } = 100; public int HighPass { get; set; } = 80;
+        public int LowGain { get; set; } public int MidGain { get; set; } public int HighGain { get; set; }
+        public bool Compressor { get; set; } = true; public int Threshold { get; set; } = -24; public double Ratio { get; set; } = 3;
+        public bool NoiseSuppression { get; set; } = true; public bool EchoCancellation { get; set; } = true; public bool AutoGainControl { get; set; }
+    }
+}

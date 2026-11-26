@@ -1,0 +1,37 @@
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+            <NotAuthorized Context="authContext">
+                @if (authContext.User.Identity?.IsAuthenticated == true)
+                {
+                    <LayoutView Layout="typeof(SiteLayout)">
+                        <section class="site-notfound">
+                            <div class="nf-code">403</div>
+                            <h2>به این بخش دسترسی ندارید</h2>
+                            <p>حساب شما مجوز مشاهده این صفحه را ندارد.</p>
+                            <a class="btn btn-primary" href="/">بازگشت به صفحه اصلی</a>
+                        </section>
+                    </LayoutView>
+                }
+                else
+                {
+                    <RedirectToLogin />
+                }
+            </NotAuthorized>
+            <Authorizing>
+                <div class="loading-panel">در حال بررسی دسترسی...</div>
+            </Authorizing>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(SiteLayout)">
+            <section class="site-notfound">
+                <div class="nf-code">404</div>
+                <h2>صفحه پیدا نشد</h2>
+                <p>آدرس واردشده وجود ندارد یا منتقل شده است.</p>
+                <a class="btn btn-primary" href="/">بازگشت به صفحه اصلی</a>
+            </section>
+        </LayoutView>
+    </NotFound>
+</Router>

@@ -1,0 +1,48 @@
+<div class="ls-media-picker">
+    <div class="ls-media-grid">
+        @if (AllowNone)
+        {
+            <button type="button" class="ls-media-tile none @(string.IsNullOrWhiteSpace(SelectedId) ? "selected" : "")" @onclick="() => SelectAsync(null)">
+                <i class="bi bi-slash-circle"></i><span>@NoneLabel</span>
+            </button>
+        }
+        @foreach (var asset in Items)
+        {
+            <button type="button" @key="asset.Id" class="ls-media-tile @(asset.Id == SelectedId ? "selected" : "")" title="@asset.Name" @onclick="() => SelectAsync(asset.Id)">
+                @if (asset.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+                {
+                    <video src="@asset.Url" muted playsinline preload="metadata"></video>
+                    <b class="ls-media-kind"><i class="bi bi-film"></i></b>
+                }
+                else
+                {
+                    <img src="@asset.Url" alt="@asset.Name" />
+                }
+                <span>@asset.Name</span>
+                @if (asset.Id == SelectedId) { <em class="ls-media-check"><i class="bi bi-check-lg"></i></em> }
+            </button>
+        }
+    </div>
+    @if (!Items.Any())
+    {
+        <div class="ls-layer-empty">رسانه‌ای در Media Box وجود ندارد. با دکمه «افزودن فایل» تصویر یا ویدئو اضافه کنید.</div>
+    }
+</div>
+
+@code {
+    [Parameter] public new IEnumerable<StudioComposerPanel.AssetDto> Assets { get; set; } = [];
+    [Parameter] public string? SelectedId { get; set; }
+    [Parameter] public EventCallback<string?> OnSelect { get; set; }
+    [Parameter] public bool AllowNone { get; set; }
+    [Parameter] public string NoneLabel { get; set; } = "بدون رسانه";
+    [Parameter] public string Filter { get; set; } = "visual";
+
+    private IEnumerable<StudioComposerPanel.AssetDto> Items => Assets.Where(a => Filter switch
+    {
+        "image" => a.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase),
+        "video" => a.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase),
+        _ => a.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) || a.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)
+    });
+
+    private Task SelectAsync(string? id) => OnSelect.InvokeAsync(id);
+}

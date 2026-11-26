@@ -1,0 +1,38 @@
+@page "/admin/tickets"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:tickets")]
+@inject ITicketService TicketSvc
+@inject NavigationManager Navigation
+
+<PageTitle>تیکت‌ها | مدیریت LiveStudio</PageTitle>
+<header class="topbar"><div><div class="eyebrow">ADMIN / TICKETS</div><h1>تیکت‌های مشتریان</h1></div></header>
+<section class="panel mt-3">
+    <div class="toolbar"><SearchBox Value="@_query" ValueChanged="OnSearch" Placeholder="جستجو در موضوع، شماره تیکت، نام یا موبایل..." />
+        <select class="form-select" @onchange="OnStatus"><option value="">همه وضعیت‌ها</option>@foreach (var s in Enum.GetValues<TicketStatus>()) { <option value="@((int)s)">@Fa.TicketStatusText(s)</option> }</select></div>
+    @if (_result.Items.Count == 0) { <div class="empty-state"><div class="empty-icon"><i class="bi bi-inbox"></i></div><strong>تیکتی وجود ندارد</strong></div> }
+    else
+    {
+        <div class="table-wrap"><table class="data-table clickable">
+            <thead><tr><th>شماره</th><th>موضوع</th><th>مشتری</th><th>بخش</th><th>اولویت</th><th>پیام‌ها</th><th>بروزرسانی</th><th>وضعیت</th></tr></thead>
+            <tbody>@foreach (var t in _result.Items)
+            {
+                <tr @onclick='() => Navigation.NavigateTo($"/admin/tickets/{t.Id}")'><td>#@t.Number</td><td class="cell-strong">@t.Subject</td>
+                    <td>@t.UserName<br /><small class="muted ltr-text">@t.UserMobile</small></td><td>@Fa.Department(t.Department)</td>
+                    <td><span class="b @Fa.PriorityClass(t.Priority)">@Fa.Priority(t.Priority)</span></td><td>@t.MessageCount</td><td>@Fa.Date(t.UpdatedAt, true)</td>
+                    <td><span class="b @Fa.TicketStatusClass(t.Status)">@Fa.TicketStatusText(t.Status)</span></td></tr>
+            }</tbody></table></div>
+        <Pager Page="_result.Page" TotalPages="_result.TotalPages" Total="_result.Total" PageChanged="GoPage" />
+    }
+</section>
+
+@code {
+    private PagedResult<TicketRow> _result = PagedResult<TicketRow>.Empty();
+    private string? _query;
+    private TicketStatus? _status;
+    private int _page = 1;
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync() => _result = await TicketSvc.SearchAsync(null, _query, _status, _page, 12);
+    private async Task OnSearch(string text) { _query = text; _page = 1; await LoadAsync(); }
+    private async Task OnStatus(ChangeEventArgs e) { _status = int.TryParse(e.Value?.ToString(), out var v) ? (TicketStatus)v : null; _page = 1; await LoadAsync(); }
+    private async Task GoPage(int page) { _page = page; await LoadAsync(); }
+}

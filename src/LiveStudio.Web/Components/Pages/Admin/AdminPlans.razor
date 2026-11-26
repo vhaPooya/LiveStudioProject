@@ -1,0 +1,99 @@
+@page "/admin/plans"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:plans")]
+@inject CurrentUser Me
+@inject ISubscriptionService Subscriptions
+@inject IJSRuntime JS
+
+<PageTitle>طرح‌ها و قیمت‌ها | مدیریت LiveStudio</PageTitle>
+<header class="topbar"><div><div class="eyebrow">ADMIN / PLANS</div><h1>طرح‌ها و قیمت‌ها</h1></div><button class="btn btn-primary" @onclick="NewPlan"><i class="bi bi-plus-lg ms-1"></i>طرح جدید</button></header>
+<Notice Error="@_error" Success="@_success" />
+
+@if (_edit is not null)
+{
+    <section class="panel mt-3">
+        <div class="panel-heading"><div><div class="eyebrow">@(_isNew ? "NEW PLAN" : "EDIT PLAN")</div><h3>@(_isNew ? "ثبت طرح جدید" : "ویرایش طرح")</h3></div></div>
+        <div class="form-grid">
+            <div><label class="form-label">نام طرح</label><input class="form-control" maxlength="100" @bind="_edit.Name" /></div>
+            <div><label class="form-label">شناسه (Slug) انگلیسی</label><input class="form-control ltr-input" maxlength="64" @bind="_edit.Slug" /></div>
+            <div class="span-2"><label class="form-label">توضیح کوتاه</label><input class="form-control" maxlength="300" @bind="_edit.Tagline" /></div>
+            <div><label class="form-label">قیمت (تومان)</label><input class="form-control" type="number" min="0" @bind="_edit.Price" /></div>
+            <div><label class="form-label">قیمت قبلی برای خط‌خوردگی (اختیاری)</label><input class="form-control" type="number" min="0" @bind="_edit.OldPrice" /></div>
+            <div><label class="form-label">مدت (روز)</label><input class="form-control" type="number" min="1" max="3650" @bind="_edit.DurationDays" /></div>
+            <div><label class="form-label">ترتیب نمایش</label><input class="form-control" type="number" @bind="_edit.SortOrder" /></div>
+            <div><label class="form-label">متن نشان (مثلاً محبوب‌ترین)</label><input class="form-control" maxlength="40" @bind="_edit.BadgeText" /></div>
+            <div><label class="form-label">حداکثر کیفیت (ارتفاع پیکسل)</label><input class="form-control" type="number" @bind="_edit.MaxResolutionHeight" /></div>
+            <div><label class="form-label">تعداد پخش ماهانه (۰ = نامحدود)</label><input class="form-control" type="number" min="0" @bind="_edit.MaxMonthlyBroadcasts" /></div>
+            <div><label class="form-label">فضای Media Box (گیگابایت)</label><input class="form-control" type="number" min="0" @bind="_edit.StorageGb" /></div>
+            <div class="span-2"><label class="form-label">ویژگی‌ها (هر خط یک مورد)</label><textarea class="form-control" rows="6" @bind="_edit.FeaturesText"></textarea></div>
+            <div class="span-2 check-row">
+                <label><input type="checkbox" @bind="_edit.IsActive" /> فعال و قابل خرید</label>
+                <label><input type="checkbox" @bind="_edit.IsPopular" /> برجسته (محبوب)</label>
+                <label><input type="checkbox" @bind="_edit.IsTrial" /> طرح آزمایشی هنگام ثبت‌نام (نمایش داده نمی‌شود)</label>
+            </div>
+        </div>
+        <div class="btn-row mt-3"><button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy"><i class="bi bi-check2 ms-1"></i>ذخیره</button><button class="btn btn-outline-secondary" @onclick="() => _edit = null">انصراف</button></div>
+    </section>
+}
+
+<section class="panel mt-3">
+    <div class="toolbar"><SearchBox Value="@_query" ValueChanged="OnSearch" Placeholder="جستجو در نام یا شناسه طرح..." /></div>
+    <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>طرح</th><th>مدت</th><th>قیمت</th><th>کیفیت</th><th>وضعیت</th><th></th></tr></thead>
+        <tbody>@foreach (var p in Page)
+        {
+            <tr><td><strong>@p.Name</strong>@if (p.IsPopular) { <span class="b b-amber me-1">برجسته</span> }@if (p.IsTrial) { <span class="b b-blue me-1">آزمایشی</span> }<br /><small class="muted ltr-text">@p.Slug</small></td>
+                <td>@p.DurationDays روز</td><td>@Fa.Money(p.Price)@if (p.OldPrice is > 0) { <br /><small class="muted"><s>@Fa.Num(p.OldPrice.Value)</s></small> }</td>
+                <td>@(p.MaxResolutionHeight)p</td>
+                <td><span class="b @(p.IsActive ? "b-green" : "b-gray")">@(p.IsActive ? "فعال" : "غیرفعال")</span></td>
+                <td class="actions"><button class="btn btn-outline-secondary btn-sm" @onclick="() => Edit(p)"><i class="bi bi-pencil"></i></button>
+                    <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteAsync(p)"><i class="bi bi-trash"></i></button></td></tr>
+        }</tbody></table></div>
+    <Pager Page="_page" TotalPages="TotalPages" Total="Filtered.Count" PageChanged="p => _page = p" />
+</section>
+
+@code {
+    private const int PageSize = 8;
+    private List<SubscriptionPlan> _all = [];
+    private SubscriptionPlan? _edit;
+    private bool _isNew, _busy;
+    private string? _query, _error, _success;
+    private int _page = 1;
+
+    private List<SubscriptionPlan> Filtered => string.IsNullOrWhiteSpace(_query) ? _all
+        : _all.Where(p => p.Name.Contains(_query, StringComparison.OrdinalIgnoreCase) || p.Slug.Contains(_query, StringComparison.OrdinalIgnoreCase)).ToList();
+    private IEnumerable<SubscriptionPlan> Page => Filtered.Skip((_page - 1) * PageSize).Take(PageSize);
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(Filtered.Count / (double)PageSize));
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync() => _all = (await Subscriptions.GetPlansAsync(false)).ToList();
+    private void OnSearch(string text) { _query = text; _page = 1; }
+
+    private void NewPlan() { _edit = new SubscriptionPlan { Slug = "plan-" + Guid.NewGuid().ToString("N")[..6], SortOrder = (_all.Count + 1) * 10 }; _isNew = true; _error = _success = null; }
+    private void Edit(SubscriptionPlan p)
+    {
+        _edit = new SubscriptionPlan
+        {
+            Id = p.Id, Name = p.Name, Slug = p.Slug, Tagline = p.Tagline, Price = p.Price, OldPrice = p.OldPrice, DurationDays = p.DurationDays, BadgeText = p.BadgeText,
+            IsPopular = p.IsPopular, IsActive = p.IsActive, IsTrial = p.IsTrial, SortOrder = p.SortOrder, MaxMonthlyBroadcasts = p.MaxMonthlyBroadcasts,
+            MaxResolutionHeight = p.MaxResolutionHeight, StorageGb = p.StorageGb, FeaturesText = p.FeaturesText, CreatedAt = p.CreatedAt
+        };
+        _isNew = false; _error = _success = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true; _error = _success = null;
+        var result = await Subscriptions.SavePlanAsync(_edit!, await Me.ActorAsync());
+        if (result.Success) { _success = "طرح ذخیره شد و در صفحه سایت اعمال می‌شود."; _edit = null; await LoadAsync(); } else _error = result.Error;
+        _busy = false;
+    }
+
+    private async Task DeleteAsync(SubscriptionPlan p)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"طرح «{p.Name}» حذف شود؟")) return;
+        _error = _success = null;
+        var result = await Subscriptions.DeletePlanAsync(p.Id, await Me.ActorAsync());
+        if (result.Success) { _success = "طرح حذف شد."; await LoadAsync(); } else _error = result.Error;
+    }
+}

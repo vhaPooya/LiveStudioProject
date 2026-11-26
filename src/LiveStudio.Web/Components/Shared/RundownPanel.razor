@@ -1,0 +1,136 @@
+@implements IDisposable
+@inject IJSRuntime JS
+@inject IRundownService Rundown
+
+<div>
+    <div class="ls-inspector-title"><div><small>RUNDOWN</small><h4>برنامه‌ی پخش ویدئو</h4></div><i class="bi bi-collection-play"></i></div>
+    @if (!string.IsNullOrEmpty(NowPlaying))
+    {
+        <div class="sy-cmt super"><b><i class="bi bi-play-circle-fill ms-1"></i>در حال پخش</b><p>@NowPlaying</p><button class="btn btn-sm btn-danger" @onclick="StopAsync"><i class="bi bi-stop-fill ms-1"></i>توقف و بازگشت به تصویر</button></div>
+    }
+    @if (!string.IsNullOrEmpty(_error)) { <small class="text-warning d-block mb-2">@_error</small> }
+    @foreach (var r in _rows)
+    {
+        <div class="sy-dest">
+            <div class="flex-fill">
+                <strong>@r.Order. @r.Title</strong>
+                <small style="direction:rtl;text-align:right">@(r.PlannedAt is null ? "دستی" : (r.AutoPlay ? "خودکار · " : "برنامه‌ریزی‌شده · ") + FormatLocal(r.PlannedAt.Value))@(r.Played ? " · پخش شد" : "")</small>
+            </div>
+            <button class="btn btn-sm btn-primary" title="پخش" @onclick="() => PlayAsync(r)"><i class="bi bi-play-fill"></i></button>
+            @if (!Remote)
+            {
+                <button class="ls-layer-icon" title="بالا" @onclick="() => MoveAsync(r, -1)"><i class="bi bi-chevron-up"></i></button>
+                <button class="ls-layer-icon" title="پایین" @onclick="() => MoveAsync(r, 1)"><i class="bi bi-chevron-down"></i></button>
+                <button class="ls-layer-icon danger" title="حذف" @onclick="() => DeleteAsync(r)"><i class="bi bi-trash3"></i></button>
+            }
+        </div>
+    }
+    @if (_rows.Count == 0) { <div class="ls-layer-empty">@(Remote ? "برنامه‌ای توسط میزبان تعریف نشده است." : "هنوز ویدئویی به برنامه اضافه نشده است.")</div> }
+
+    @if (!Remote)
+    {
+        <div class="ls-element-color-title mt-3">افزودن ویدئو از Media Box</div>
+        <select class="form-select form-select-sm" @bind="_assetId">
+            <option value="">انتخاب ویدئو…</option>
+            @foreach (var a in _videos) { <option value="@a.Id">@a.Name</option> }
+        </select>
+        <label class="form-label mt-2">زمان پخش (اختیاری)</label>
+        <input type="datetime-local" class="form-control form-control-sm" @bind="_planned" />
+        <label class="ls-check-row mt-2"><input type="checkbox" @bind="_auto" /> پخش خودکار در زمان تعیین‌شده</label>
+        <button class="btn btn-sm btn-primary w-100 mt-2" @onclick="AddAsync"><i class="bi bi-plus-lg ms-1"></i>افزودن به برنامه</button>
+        <small class="text-secondary d-block mt-2">پخش خودکار فقط تا زمانی که استودیوی میزبان باز است انجام می‌شود.</small>
+    }
+</div>
+
+@code {
+    private sealed record Vid(string Id, string Name, string MimeType);
+
+    [Parameter, EditorRequired] public Guid OwnerId { get; set; }
+    [Parameter, EditorRequired] public string BroadcastId { get; set; } = string.Empty;
+    /// <summary>true = team console: commands are sent to the host studio, nothing is edited.</summary>
+    [Parameter] public bool Remote { get; set; }
+    [Parameter] public string? NowPlaying { get; set; }
+
+    private List<RundownRow> _rows = [];
+    private List<Vid> _videos = [];
+    private string _assetId = "";
+    private DateTime? _planned;
+    private bool _auto;
+    private string? _error;
+    private int _tz;
+    private Timer? _timer;
+    private int _tick;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try { _tz = await JS.InvokeAsync<int>("lsPrefs.tzOffset"); } catch { }
+        if (!Remote) { await LoadVideosAsync(); StateHasChanged(); }
+        _timer = new Timer(_ => _ = InvokeAsync(TickAsync), null, 1000, 1000);
+    }
+
+    private async Task LoadAsync() => _rows = (await Rundown.ListAsync(OwnerId, BroadcastId)).ToList();
+
+    private async Task LoadVideosAsync()
+    {
+        try { _videos = (await JS.InvokeAsync<List<Vid>>("studioCompositor.getAssets")).Where(a => a.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)).ToList(); } catch { }
+    }
+
+    private string FormatLocal(DateTime utc) => utc.AddMinutes(-_tz).ToString("yyyy/MM/dd HH:mm");
+
+    private async Task TickAsync()
+    {
+        _tick++;
+        if (_tick % 10 == 0) { await LoadAsync(); StateHasChanged(); }
+        if (Remote) return;
+        var now = DateTime.UtcNow;
+        var due = _rows.FirstOrDefault(r => r.AutoPlay && !r.Played && r.PlannedAt is { } at && at <= now && now - at < TimeSpan.FromMinutes(5));
+        if (due is not null) { await Rundown.MarkPlayedAsync(OwnerId, due.Id, true); await PlayAsync(due); }
+    }
+
+    private async Task PlayAsync(RundownRow r)
+    {
+        _error = null;
+        try
+        {
+            if (Remote) await JS.InvokeVoidAsync("lsTeam.send", "media.play", new { assetId = r.AssetId, title = r.Title });
+            else await JS.InvokeVoidAsync("studioCompositor.playMedia", "live", r.AssetId, r.Title);
+            await Rundown.MarkPlayedAsync(OwnerId, r.Id, true);
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task StopAsync()
+    {
+        try
+        {
+            if (Remote) await JS.InvokeVoidAsync("lsTeam.send", "media.stop", new { });
+            else await JS.InvokeVoidAsync("studioCompositor.stopMedia", "live");
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task AddAsync()
+    {
+        _error = null;
+        var v = _videos.FirstOrDefault(x => x.Id == _assetId);
+        if (v is null) { _error = "یک ویدئو انتخاب کنید."; return; }
+        DateTime? utc = _planned is { } p ? DateTime.SpecifyKind(p, DateTimeKind.Unspecified).AddMinutes(_tz) : null;
+        var r = await Rundown.AddAsync(OwnerId, BroadcastId, v.Id, v.Name, utc, _auto);
+        if (!r.Success) { _error = r.Error; return; }
+        _assetId = ""; _planned = null; _auto = false;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(RundownRow r) { await Rundown.DeleteAsync(OwnerId, r.Id); await LoadAsync(); }
+    private async Task MoveAsync(RundownRow r, int dir) { await Rundown.MoveAsync(OwnerId, r.Id, dir); await LoadAsync(); }
+
+    public void Dispose() { _timer?.Dispose(); _timer = null; }
+}

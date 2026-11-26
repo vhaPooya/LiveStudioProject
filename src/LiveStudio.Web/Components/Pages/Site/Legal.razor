@@ -1,0 +1,91 @@
+@page "/terms"
+@page "/privacy"
+@page "/refund"
+@layout SiteLayout
+@attribute [AllowAnonymous]
+@inject IContentService Content
+@implements IDisposable
+@inject NavigationManager Navigation
+
+<PageTitle>@Title | @_site.SiteName</PageTitle>
+<HeadContent><meta name="robots" content="index,follow" /></HeadContent>
+
+<section class="legal-page">
+    <div class="site-container narrow">
+        <nav class="legal-tabs">
+            <a href="/terms" class="@(Kind == "terms" ? "on" : "")">قوانین و مقررات</a>
+            <a href="/privacy" class="@(Kind == "privacy" ? "on" : "")">حریم خصوصی</a>
+            <a href="/refund" class="@(Kind == "refund" ? "on" : "")">بازگشت وجه</a>
+        </nav>
+        <h1>@Title</h1>
+        <p class="legal-meta">آخرین به‌روزرسانی: @_updated</p>
+        <article class="legal-body">
+            @if (Kind == "terms" && !string.IsNullOrWhiteSpace(_site.TermsText))
+            {
+                @foreach (var para in _site.TermsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    <p>@para</p>
+                }
+            }
+            else
+            {
+                @foreach (var (heading, text) in Sections)
+                {
+                    <h2>@heading</h2>
+                    <p>@text</p>
+                }
+            }
+        </article>
+        <p class="legal-contact"><i class="bi bi-envelope ms-1"></i>برای پرسش دربارهٔ این متن از بخش تیکت‌های پنل کاربری@(string.IsNullOrWhiteSpace(_site.SupportEmail) ? "" : " یا ایمیل " + _site.SupportEmail) با ما در تماس باشید.</p>
+    </div>
+</section>
+
+@code {
+    private SiteContent _site = new();
+    private string _updated = string.Empty;
+
+    private string Kind => new Uri(Navigation.Uri).AbsolutePath.Trim('/').ToLowerInvariant() switch { "privacy" => "privacy", "refund" => "refund", _ => "terms" };
+    private string Title => Kind switch { "privacy" => "حریم خصوصی", "refund" => "سیاست بازگشت وجه", _ => "قوانین و مقررات استفاده" };
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        _site = await Content.GetSiteContentAsync();
+        _updated = new System.Globalization.PersianCalendar().GetYear(DateTime.Now) + "/" + new System.Globalization.PersianCalendar().GetMonth(DateTime.Now).ToString("00");
+    }
+
+    protected override void OnParametersSet() => StateHasChanged();
+
+    private (string Heading, string Text)[] Sections => Kind switch
+    {
+        "privacy" =>
+        [
+            ("اطلاعاتی که جمع‌آوری می‌کنیم", "برای ایجاد حساب، نام، کد ملی، شماره موبایل و ایمیل (اختیاری) دریافت می‌شود. کد ملی فقط به‌صورت یک‌طرفه (Hash) ذخیره می‌شود و برای ورود و جلوگیری از حساب‌های تکراری به کار می‌رود."),
+            ("اتصال به گوگل و یوتیوب", "Client ID و Client Secret اختصاصی شما و توکن‌های دسترسی، رمزنگاری‌شده و فقط در سرور و جدا از سایر کاربران نگه‌داری می‌شوند. هیچ‌گاه Stream Key یا توکن به مرورگر ارسال نمی‌شود. هر زمان بخواهید می‌توانید اتصال را از پنل قطع کنید."),
+            ("استفادهٔ ما از اطلاعات", "اطلاعات شما فقط برای ارائهٔ سرویس، احراز هویت، ارسال پیامک تأیید، پشتیبانی و صدور فاکتور استفاده می‌شود و برای اهداف تبلیغاتی به اشخاص ثالث فروخته یا واگذار نمی‌شود."),
+            ("رسانه‌های شما", "فایل‌های Media Box (لوگو، موسیقی، ویدئو) در مرورگر شما نگه‌داری می‌شوند و به سرور ما ارسال نمی‌شوند، مگر اینکه خودتان آن‌ها را در یک قابلیت سرور-محور استفاده کنید."),
+            ("نگه‌داری و حذف", "اطلاعات حساب تا زمانی که حساب فعال است نگه‌داری می‌شود. برای حذف حساب و داده‌ها از بخش تیکت‌ها درخواست دهید."),
+            ("امنیت", "ارتباط‌ها با HTTPS رمزنگاری می‌شوند، رمزهای حساس رمزنگاری می‌شوند و فعالیت‌های حساس برای پیگیری امنیتی ثبت می‌شود.")
+        ],
+        "refund" =>
+        [
+            ("دوره آزمایشی", "هنگام ثبت‌نام می‌توانید پیش از خرید، سرویس را در دوره آزمایشی بدون هزینه بررسی کنید."),
+            ("شرایط بازگشت وجه", "در صورت بروز اشکال فنیِ ناشی از سامانه که از طرف ما برطرف نشود، می‌توانید طی ۷ روز از خرید از طریق تیکت درخواست بازگشت وجه دهید."),
+            ("موارد غیرقابل بازگشت", "استفادهٔ قابل‌توجه از اشتراک، محدودیت‌های ناشی از حساب گوگل/یوتیوب شما (مثلاً محدودیت قابلیت پخش زنده در کانال) و نقض قوانین استفاده، از شمول بازگشت وجه خارج است."),
+            ("نحوهٔ بازگشت", "پس از تأیید درخواست، مبلغ به همان روش پرداخت و در مهلت معمول بانکی بازگردانده می‌شود.")
+        ],
+        _ =>
+        [
+            ("پذیرش قوانین", "با ثبت‌نام و استفاده از سامانه، این قوانین را می‌پذیرید. اگر با آن‌ها موافق نیستید از سرویس استفاده نکنید."),
+            ("ماهیت سرویس", "این سامانه ابزاری برای ترکیب تصویر و صدا در مرورگر و ارسال آن به حساب یوتیوب خود شماست. پخش‌های شما روی کانال و حساب گوگل خودتان انجام می‌شود و تابع قوانین یوتیوب است."),
+            ("حساب کاربری", "اطلاعات هویتی باید صحیح باشد. حفظ دسترسی به شماره موبایل ثبت‌شده بر عهدهٔ شماست و هر فعالیتی از طریق حساب شما، به نام شما ثبت می‌شود."),
+            ("محتوای پخش", "مسئولیت محتوای پخش، رعایت قوانین کشور و حقوق مالکیت معنوی (مانند موسیقی و ویدئو) بر عهدهٔ کاربر است. ما بر محتوای پخش نظارت پیشینی نداریم و در صورت نقض قوانین می‌توانیم دسترسی را محدود کنیم."),
+            ("اشتراک و پرداخت", "قیمت و امکانات هر طرح در صفحهٔ تعرفه‌ها اعلام می‌شود. فعال‌سازی اشتراک پس از پرداخت موفق انجام می‌شود و تمدید با افزودن به مدت باقی‌مانده است."),
+            ("محدودیت مسئولیت", "تلاش ما ارائهٔ سرویس پایدار است، اما به‌دلیل وابستگی به شبکه، مرورگر، سخت‌افزار شما و سرویس‌های ثالث مانند یوتیوب، تضمین بی‌وقفه بودن یا نبود خطا ممکن نیست."),
+            ("تغییر قوانین", "این قوانین ممکن است به‌روزرسانی شود و نسخهٔ جدید در همین صفحه منتشر می‌شود.")
+        ]
+    };
+}

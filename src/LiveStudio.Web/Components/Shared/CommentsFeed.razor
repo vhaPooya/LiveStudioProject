@@ -1,0 +1,116 @@
+@implements IDisposable
+@using System.Net.Http.Json
+@using System.Text.Json
+
+<div>
+    <div class="ls-inspector-title"><div><small>YOUTUBE CHAT</small><h4>کامنت بینندگان</h4></div><i class="bi bi-chat-square-quote"></i></div>
+    @if (!Active) { <small class="text-secondary d-block mb-2">کامنت‌ها پس از شروع پخش در یوتیوب دریافت می‌شوند.</small> }
+    @if (!string.IsNullOrWhiteSpace(_error)) { <small class="text-warning d-block mb-2">@_error</small> }
+    @if (OnShow.HasDelegate && OnHide.HasDelegate)
+    {
+        <button class="btn btn-sm btn-warning w-100 mb-2" @onclick="() => OnHide.InvokeAsync()"><i class="bi bi-eye-slash ms-1"></i>برداشتن کامنت از روی تصویر</button>
+    }
+    @foreach (var c in _items.AsEnumerable().Reverse())
+    {
+        <div class="sy-cmt @(c.Amount is null ? "" : "super")">
+            <b>@c.Author@(c.Amount is null ? "" : "  •  " + c.Amount)</b>
+            <p>@c.Text</p>
+            <div class="d-flex flex-wrap gap-1">
+                @if (OnShow.HasDelegate)
+                {
+                    <button class="btn btn-sm btn-outline-primary" @onclick="() => OnShow.InvokeAsync(new CommentShow(c.Author, c.Text, c.Amount))"><i class="bi bi-tv ms-1"></i>روی تصویر</button>
+                }
+                @if (CanModerate)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" title="حذف پیام" @onclick="() => DeleteAsync(c)"><i class="bi bi-trash3"></i></button>
+                    @if (!string.IsNullOrEmpty(c.AuthorChannelId))
+                    {
+                        <button class="btn btn-sm btn-outline-warning" title="بی‌صدا کردن ۱۰ دقیقه‌ای" @onclick="() => BanAsync(c, 600)"><i class="bi bi-clock-history ms-1"></i>۱۰ دقیقه</button>
+                        <button class="btn btn-sm btn-outline-danger" title="حذف دائمی بیننده از چت" @onclick="() => BanAsync(c, null)"><i class="bi bi-person-x ms-1"></i>بیرون‌انداختن</button>
+                    }
+                }
+            </div>
+        </div>
+    }
+    @if (_items.Count == 0 && Active) { <div class="ls-layer-empty">هنوز کامنتی نرسیده است.</div> }
+    @if (CanModerate) { <small class="text-secondary d-block mt-2">«بیرون‌انداختن» بیننده را برای همیشه از چت این کانال حذف می‌کند؛ یوتیوب اجازه‌ی قطع تماشای ویدئو را نمی‌دهد.</small> }
+</div>
+
+@code {
+    public sealed record CommentShow(string Author, string Text, string? Amount);
+    private sealed record Msg(string Id, string Author, string Text, string? Amount, string? AuthorChannelId);
+    private sealed record Page(List<Msg> Messages, string? NextPageToken, int PollingIntervalMillis);
+
+    [Parameter, EditorRequired] public HttpClient Api { get; set; } = default!;
+    [Parameter, EditorRequired] public string BroadcastId { get; set; } = string.Empty;
+    [Parameter] public bool Active { get; set; }
+    [Parameter] public bool CanModerate { get; set; }
+    [Parameter] public EventCallback<CommentShow> OnShow { get; set; }
+    [Parameter] public EventCallback OnHide { get; set; }
+    [Parameter] public EventCallback<int> OnCount { get; set; }
+
+    private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
+    private readonly List<Msg> _items = [];
+    private string? _token, _error;
+    private CancellationTokenSource? _cts;
+    private bool _wasActive;
+
+    protected override void OnParametersSet()
+    {
+        if (Active && !_wasActive) { _cts?.Cancel(); _cts = new CancellationTokenSource(); _token = null; _ = LoopAsync(_cts.Token); }
+        else if (!Active && _wasActive) { _cts?.Cancel(); _cts = null; }
+        _wasActive = Active;
+    }
+
+    private async Task LoopAsync(CancellationToken ct)
+    {
+        var wait = 10_000;
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var url = $"/api/v1/youtube/broadcasts/{Uri.EscapeDataString(BroadcastId)}/chat" + (string.IsNullOrEmpty(_token) ? "" : "?pageToken=" + Uri.EscapeDataString(_token));
+                var resp = await Api.GetAsync(url, ct);
+                if (resp.IsSuccessStatusCode)
+                {
+                    _error = null;
+                    var page = await resp.Content.ReadFromJsonAsync<Page>(_json, ct);
+                    if (page is not null)
+                    {
+                        _token = page.NextPageToken; wait = Math.Max(10_000, page.PollingIntervalMillis);
+                        if (page.Messages.Count > 0) { _items.AddRange(page.Messages); if (_items.Count > 100) _items.RemoveRange(0, _items.Count - 100); await OnCount.InvokeAsync(_items.Count); }
+                    }
+                }
+                else { _error = "دریافت کامنت‌ها ممکن نشد؛ دوباره تلاش می‌شود."; wait = 30_000; }
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (OperationCanceledException) { break; }
+            catch { wait = 30_000; }
+            try { await Task.Delay(wait, ct); } catch (OperationCanceledException) { break; }
+        }
+    }
+
+    private async Task BanAsync(Msg c, int? seconds)
+    {
+        try
+        {
+            var r = await Api.PostAsJsonAsync($"/api/v1/youtube/broadcasts/{Uri.EscapeDataString(BroadcastId)}/chat/ban", new { AuthorChannelId = c.AuthorChannelId, DurationSeconds = seconds }, _json);
+            if (!r.IsSuccessStatusCode) throw new InvalidOperationException("عملیات ناموفق بود.");
+            _items.RemoveAll(x => x.AuthorChannelId == c.AuthorChannelId); _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task DeleteAsync(Msg c)
+    {
+        try
+        {
+            var r = await Api.PostAsJsonAsync("/api/v1/youtube/chat/messages/delete", new { MessageId = c.Id }, _json);
+            if (!r.IsSuccessStatusCode) throw new InvalidOperationException("حذف پیام ناموفق بود.");
+            _items.Remove(c); _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    public void Dispose() { _cts?.Cancel(); _cts = null; }
+}

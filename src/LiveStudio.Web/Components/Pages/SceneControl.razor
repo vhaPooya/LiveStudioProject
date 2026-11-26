@@ -1,0 +1,136 @@
+@page "/scene-control"
+@attribute [Authorize(Policy = "Customer")]
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+
+<PageTitle>کنترل تصویر و صدا | LiveStudio</PageTitle>
+
+<header class="topbar studio-topbar">
+    <div>
+        <div class="eyebrow">LIVESTUDIO / SHARED SCENE CONTROL</div>
+        <h1>کنترل حرفه‌ای تصویر و پرده سبز</h1>
+        <p class="studio-subtitle">تنظیمات مشترک پردازش تصویر برای خروجی Live Studio و ضبط Creator Studio</p>
+    </div>
+    <div class="top-actions">
+        <a class="btn btn-outline-secondary" href="/studio"><i class="bi bi-broadcast ms-1"></i>Live Studio</a>
+        <a class="btn btn-outline-secondary" href="/creator"><i class="bi bi-camera-reels ms-1"></i>Creator Studio</a>
+    </div>
+</header>
+
+@if (!string.IsNullOrWhiteSpace(Notice))
+{
+    <div class="notice @(IsError ? "notice-error" : "notice-success")">@Notice</div>
+}
+
+<div class="scene-control-grid">
+    <section class="panel scene-control-main">
+        <div class="panel-heading">
+            <div><div class="eyebrow">IMAGE PROCESSING</div><h3>اصلاح رنگ و نور</h3></div>
+            <span class="status-pill">SHARED OUTPUT</span>
+        </div>
+        <div class="scene-control-columns">
+            <div class="scene-control-item">
+                <label for="brightness">روشنایی <strong>@Brightness%</strong></label>
+                <input id="brightness" class="form-range" type="range" min="25" max="200" step="1" @bind="Brightness" @bind:event="oninput" />
+                <small>تنظیم روشنایی کلی تصویر</small>
+            </div>
+            <div class="scene-control-item">
+                <label for="contrast">کنتراست <strong>@Contrast%</strong></label>
+                <input id="contrast" class="form-range" type="range" min="25" max="200" step="1" @bind="Contrast" @bind:event="oninput" />
+                <small>افزایش یا کاهش اختلاف تیرگی و روشنی</small>
+            </div>
+            <div class="scene-control-item">
+                <label for="saturation">اشباع رنگ <strong>@Saturation%</strong></label>
+                <input id="saturation" class="form-range" type="range" min="0" max="250" step="1" @bind="Saturation" @bind:event="oninput" />
+                <small>از تصویر سیاه‌وسفید تا رنگ‌های زنده</small>
+            </div>
+            <div class="scene-control-item">
+                <label for="exposure">نوردهی (Exposure) <strong>@Exposure</strong></label>
+                <input id="exposure" class="form-range" type="range" min="-100" max="100" step="1" @bind="Exposure" @bind:event="oninput" />
+                <small>اصلاح نوردهی به‌صورت تقریبی در خروجی نرم‌افزار</small>
+            </div>
+        </div>
+        <div class="scene-preset-row">
+            <span>پروفایل‌های سریع:</span>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ApplyNatural">طبیعی</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ApplyVivid">رنگ زنده</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ApplyCinematic">سینمایی</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="Reset">بازنشانی</button>
+        </div>
+    </section>
+
+    <section class="panel scene-control-main">
+        <div class="panel-heading">
+            <div><div class="eyebrow">CHROMA KEY</div><h3>حذف پس‌زمینه سبز یا رنگی</h3></div>
+            <label class="scene-toggle"><input type="checkbox" @bind="ChromaEnabled" /><span>فعال‌سازی</span></label>
+        </div>
+        <div class="chroma-settings @(ChromaEnabled ? "" : "is-disabled")">
+            <div class="scene-control-item">
+                <label for="chromaColor">رنگ پس‌زمینه برای حذف</label>
+                <div class="color-input-wrap"><input id="chromaColor" type="color" @bind="ChromaColor" /><span>@ChromaColor</span></div>
+            </div>
+            <div class="scene-control-item">
+                <label for="chromaTolerance">دامنه حذف رنگ <strong>@ChromaTolerance</strong></label>
+                <input id="chromaTolerance" class="form-range" type="range" min="10" max="220" step="1" @bind="ChromaTolerance" @bind:event="oninput" disabled="@(!ChromaEnabled)" />
+                <small>مقدار بیشتر، طیف وسیع‌تری از رنگ انتخاب‌شده را شفاف می‌کند.</small>
+            </div>
+            <div class="scene-control-item">
+                <label for="chromaSoftness">نرمی لبه‌ها <strong>@ChromaSoftness</strong></label>
+                <input id="chromaSoftness" class="form-range" type="range" min="0" max="120" step="1" @bind="ChromaSoftness" @bind:event="oninput" disabled="@(!ChromaEnabled)" />
+                <small>برای کاهش لبه‌های تیز و هاله رنگی اطراف سوژه</small>
+            </div>
+        </div>
+        <div class="notice notice-info scene-warning"><i class="bi bi-info-circle ms-1"></i>برای بهترین نتیجه از نور یکنواخت، پرده سبز بدون چین‌خوردگی و فاصله مناسب سوژه از پس‌زمینه استفاده کنید. پردازش Chroma Key می‌تواند مصرف CPU را افزایش دهد.</div>
+    </section>
+
+    <section class="panel scene-control-main scene-save-panel">
+        <div>
+            <div class="eyebrow">APPLY TO BOTH STUDIOS</div>
+            <h3>ذخیره و اعمال تنظیمات</h3>
+            <p>این تنظیمات در مرورگر ذخیره می‌شوند و هنگام فعال‌سازی خروجی برنامه در هر دو استودیو اعمال خواهند شد.</p>
+        </div>
+        <button class="btn btn-primary" @onclick="SaveAsync" disabled="@Saving"><i class="bi bi-check2-circle ms-1"></i>@(Saving ? "در حال ذخیره..." : "ذخیره تنظیمات مشترک")</button>
+    </section>
+</div>
+
+@code {
+    private int Brightness = 100, Contrast = 100, Saturation = 100, Exposure = 0, ChromaTolerance = 90, ChromaSoftness = 35;
+    private bool ChromaEnabled, Saving, IsError;
+    private string ChromaColor = "#00ff00";
+    private string? Notice;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var cfg = await JS.InvokeAsync<EffectConfig?>("mediaBox.getEffects");
+            if (cfg is not null)
+            {
+                Brightness = cfg.Brightness; Contrast = cfg.Contrast; Saturation = cfg.Saturation; Exposure = cfg.Exposure;
+                ChromaEnabled = cfg.ChromaEnabled; ChromaColor = cfg.ChromaColor; ChromaTolerance = cfg.ChromaTolerance; ChromaSoftness = cfg.ChromaSoftness;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex) { Notice = $"بارگذاری تنظیمات انجام نشد: {ex.Message}"; IsError = true; StateHasChanged(); }
+    }
+
+    private void ApplyNatural() { Brightness = 100; Contrast = 100; Saturation = 100; Exposure = 0; }
+    private void ApplyVivid() { Brightness = 105; Contrast = 112; Saturation = 138; Exposure = 4; }
+    private void ApplyCinematic() { Brightness = 96; Contrast = 118; Saturation = 88; Exposure = -5; }
+    private void Reset() { ApplyNatural(); ChromaEnabled = false; ChromaColor = "#00ff00"; ChromaTolerance = 90; ChromaSoftness = 35; }
+
+    private async Task SaveAsync()
+    {
+        Saving = true; Notice = null; IsError = false;
+        try
+        {
+            await JS.InvokeVoidAsync("mediaBox.saveEffects", new { Brightness, Contrast, Saturation, Exposure, ChromaEnabled, ChromaColor, ChromaTolerance, ChromaSoftness });
+            Notice = "تنظیمات پردازش تصویر ذخیره شد و از این پس در خروجی ترکیبی هر دو استودیو اعمال می‌شود.";
+        }
+        catch (Exception ex) { Notice = $"ذخیره تنظیمات ناموفق بود: {ex.Message}"; IsError = true; }
+        finally { Saving = false; }
+    }
+
+    private sealed record EffectConfig(int Brightness, int Contrast, int Saturation, int Exposure, bool ChromaEnabled, string ChromaColor, int ChromaTolerance, int ChromaSoftness);
+}

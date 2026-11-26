@@ -1,0 +1,53 @@
+@page "/admin/gateway"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:gateway")]
+@inject CurrentUser Me
+@inject IPaymentService Payments
+@inject LiveStudio.Infrastructure.Platform.PlatformOptions Options
+
+<PageTitle>درگاه پرداخت | مدیریت LiveStudio</PageTitle>
+<header class="topbar"><div><div class="eyebrow">ADMIN / GATEWAY</div><h1>تنظیمات درگاه پرداخت</h1></div></header>
+<Notice Error="@_error" Success="@_success" />
+
+@if (_cfg is not null)
+{
+    <section class="panel mt-3">
+        <div class="panel-heading"><div><div class="eyebrow">GATEWAY</div><h3>پیکربندی درگاه</h3></div><span class="b @(_available ? "b-green" : "b-gray")">@(_available ? "پرداخت آنلاین فعال" : "پرداخت آنلاین غیرفعال")</span></div>
+        <div class="form-grid">
+            <div><label class="form-label">درگاه</label>
+                <select class="form-select" @bind="_cfg.Provider"><option value="none">بدون درگاه</option><option value="zarinpal">زرین‌پال</option>@if (Options.AllowPaymentSimulator) { <option value="simulator">شبیه‌ساز (فقط توسعه)</option> }</select></div>
+            <div><label class="form-label">شناسه پذیرنده (Merchant ID) @if (_cfg.HasMerchantId) { <span class="b b-green">ذخیره شده</span> }</label>
+                <input class="form-control ltr-input" type="password" autocomplete="new-password" @bind="_merchant" placeholder="@(_cfg.HasMerchantId ? "برای حفظ مقدار فعلی خالی بگذارید" : "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")" /></div>
+            <div class="span-2"><label class="form-label">شرح پرداخت در درگاه</label><input class="form-control" maxlength="200" @bind="_cfg.Description" /></div>
+            <div class="span-2 check-row">
+                <label><input type="checkbox" @bind="_cfg.Enabled" /> فعال‌سازی پرداخت آنلاین برای کاربران</label>
+                <label><input type="checkbox" @bind="_cfg.Sandbox" /> حالت آزمایشی (Sandbox) درگاه</label>
+            </div>
+        </div>
+        <div class="kv mt-3"><span>آدرس بازگشت (Callback)</span><b class="ltr-text">@(_baseUrl)/payment/callback</b><span>واحد مبلغ</span><b>تومان (تبدیل به ریال هنگام ارسال به درگاه)</b></div>
+        <div class="btn-row mt-3"><button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy"><i class="bi bi-check2 ms-1"></i>ذخیره تنظیمات</button></div>
+        <div class="form-text mt-2">شناسه پذیرنده رمزنگاری‌شده ذخیره می‌شود و دوباره نمایش داده نمی‌شود. تأیید هر پرداخت فقط توسط Verify سمت سرور انجام می‌شود.</div>
+    </section>
+}
+
+@code {
+    private GatewaySettings? _cfg;
+    private string _merchant = string.Empty, _baseUrl = string.Empty;
+    private bool _busy, _available;
+    private string? _error, _success;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync() { _baseUrl = Navigation.BaseUri.TrimEnd('/'); await LoadAsync(); }
+    private async Task LoadAsync() { _cfg = await Payments.GetGatewaySettingsAsync(); _available = await Payments.IsCheckoutAvailableAsync(); _merchant = string.Empty; }
+
+    private async Task SaveAsync()
+    {
+        _busy = true; _error = _success = null;
+        if (_cfg!.Enabled && _cfg.Provider == "none") { _error = "برای فعال‌سازی، یک درگاه انتخاب کنید."; _busy = false; return; }
+        if (_cfg.Enabled && _cfg.Provider == "zarinpal" && !_cfg.HasMerchantId && string.IsNullOrWhiteSpace(_merchant)) { _error = "شناسه پذیرنده را وارد کنید."; _busy = false; return; }
+        await Payments.SaveGatewaySettingsAsync(_cfg, _merchant, await Me.ActorAsync());
+        _success = "تنظیمات درگاه ذخیره شد.";
+        await LoadAsync();
+        _busy = false;
+    }
+}

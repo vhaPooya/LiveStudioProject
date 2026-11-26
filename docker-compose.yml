@@ -1,0 +1,16 @@
+# LiveStudio stores application data in SQLite.
+# LiveKit Server and the LiveKit Egress worker are managed by the existing Docker stack.
+# This file only describes the optional Redis dependency for a fresh local setup.
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: livestudio-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - livestudio-redis:/data
+
+volumes:
+  livestudio-redis:

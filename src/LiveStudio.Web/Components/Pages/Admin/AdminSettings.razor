@@ -1,0 +1,123 @@
+@page "/admin/settings"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:settings")]
+@inject CurrentUser Me
+@inject ISettingsService Settings
+@inject ISmsOtpClient Sms
+@inject IActivityLogService Logs
+@inject IGoogleOAuthTenantService OAuth
+
+<PageTitle>تنظیمات سامانه | مدیریت LiveStudio</PageTitle>
+<header class="topbar"><div><div class="eyebrow">ADMIN / SETTINGS</div><h1>تنظیمات سامانه</h1></div></header>
+<Notice Error="@_error" Success="@_success" />
+
+<section class="panel mt-3">
+    <div class="panel-heading"><div><div class="eyebrow">SMS · OTPY</div><h3>پنل پیامک (OTPy)</h3></div><span class="b @(_smsConfigured ? "b-green" : "b-red")">@(_smsConfigured ? "پیکربندی‌شده" : "کلید ثبت نشده")</span></div>
+    <p class="form-hint">ورود و ثبت‌نام کاربران با کد یک‌بارمصرف OTPy انجام می‌شود. کلید API را از پنل <span class="ltr-text">otpy.ir</span> دریافت کنید. کد تأیید توسط OTPy تولید، ارسال و بررسی می‌شود و در این سامانه ذخیره نمی‌شود.</p>
+    <div class="form-grid">
+        <div class="span-2"><label class="form-label">کلید API @if (_smsKeySaved) { <span class="b b-green">ذخیره شده</span> }</label>
+            <input class="form-control ltr-input" type="password" autocomplete="new-password" @bind="_smsKey" placeholder="@(_smsKeySaved ? "برای حفظ مقدار فعلی خالی بگذارید" : "کلید API OTPy")" /></div>
+        <div class="span-2 check-row"><label><input type="checkbox" @bind="_smsEnabled" /> ارسال پیامک فعال باشد</label></div>
+        <div><label class="form-label">ارسال کد آزمایشی به موبایل</label><input class="form-control ltr-input" @bind="_testMobile" placeholder="09123456789" /></div>
+    </div>
+    <div class="btn-row mt-3"><button class="btn btn-primary" @onclick="SaveSmsAsync"><i class="bi bi-check2 ms-1"></i>ذخیره تنظیمات پیامک</button>
+        <button class="btn btn-outline-secondary" @onclick="TestSmsAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_testMobile))"><i class="bi bi-send ms-1"></i>ارسال پیامک آزمایشی</button></div>
+</section>
+
+<section class="panel mt-3">
+    <div class="panel-heading"><div><div class="eyebrow">GOOGLE OAUTH · SHARED</div><h3>Google OAuth مشترک نرم‌افزار</h3></div></div>
+    <p class="form-hint">Redirect URI برای همه مشتریان یکسان است و باید HTTPS باشد. هر مشتری Client ID و Secret اختصاصی خودش را در پنل کاربری ثبت می‌کند؛ این آدرس باید در پروژه Google Cloud همان مشتری ثبت شود.</p>
+    <div class="form-grid">
+        <div class="span-2"><label class="form-label">Redirect URI مشترک</label><input class="form-control ltr-input" @bind="_redirect" placeholder="@_defaultRedirect" />
+            <div class="form-text">خالی = آدرس پیش‌فرض: <span class="ltr-text">@_defaultRedirect</span></div></div>
+        <div class="span-2"><label class="form-label">لینک ویدئوی آموزش دریافت کلیدهای گوگل (mp4 یا یوتیوب/آپارات)</label><input class="form-control ltr-input" @bind="_video" placeholder="https://..." /></div>
+    </div>
+    <button class="btn btn-primary mt-3" @onclick="SaveOAuthAsync"><i class="bi bi-check2 ms-1"></i>ذخیره</button>
+</section>
+
+<section class="panel mt-3">
+    <div class="panel-heading"><div><div class="eyebrow">GENERAL</div><h3>تنظیمات عمومی و پایش</h3></div></div>
+    <div class="form-grid">
+        <div><label class="form-label">روزهای دوره آزمایشی ثبت‌نام (۰ = بدون هدیه)</label><input class="form-control" type="number" min="0" max="365" @bind="_trialDays" /></div>
+        <div><label class="form-label">حداقل فضای آزاد دیسک برای هشدار (GB)</label><input class="form-control" type="number" min="1" @bind="_minDisk" /></div>
+        <div><label class="form-label">فاصله بررسی خودکار سرویس‌ها (ثانیه)</label><input class="form-control" type="number" min="15" max="3600" @bind="_interval" /></div>
+        <div class="check-row"><label><input type="checkbox" @bind="_registrationOpen" /> ثبت‌نام کاربر جدید باز باشد</label><label><input type="checkbox" @bind="_monitorEnabled" /> پایش خودکار فعال باشد</label></div>
+    </div>
+    <button class="btn btn-primary mt-3" @onclick="SaveGeneralAsync"><i class="bi bi-check2 ms-1"></i>ذخیره</button>
+</section>
+
+@code {
+    private string _smsKey = string.Empty, _testMobile = string.Empty, _redirect = string.Empty, _video = string.Empty, _defaultRedirect = string.Empty;
+    private bool _smsEnabled = true, _smsConfigured, _smsKeySaved, _registrationOpen = true, _monitorEnabled = true, _busy;
+    private int _trialDays = 7, _minDisk = 2, _interval = 60;
+    private string? _error, _success;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _smsKeySaved = await Settings.HasValueAsync(SettingKeys.SmsApiKey);
+        _smsConfigured = await Sms.IsConfiguredAsync();
+        _smsEnabled = await Settings.GetBoolAsync(SettingKeys.SmsEnabled, true);
+        _redirect = await Settings.GetAsync(SettingKeys.GoogleRedirectUri, string.Empty);
+        _video = await Settings.GetAsync(SettingKeys.TutorialVideoUrl, string.Empty);
+        _defaultRedirect = await OAuth.GetSharedRedirectUriAsync();
+        _trialDays = await Settings.GetIntAsync(SettingKeys.TrialDays, 7);
+        _minDisk = await Settings.GetIntAsync(SettingKeys.MonitorMinDiskGb, 2);
+        _interval = await Settings.GetIntAsync(SettingKeys.MonitorIntervalSeconds, 60);
+        _registrationOpen = await Settings.GetBoolAsync(SettingKeys.RegistrationOpen, true);
+        _monitorEnabled = await Settings.GetBoolAsync(SettingKeys.MonitorEnabled, true);
+    }
+
+    private async Task SaveSmsAsync()
+    {
+        _error = _success = null;
+        if (!string.IsNullOrWhiteSpace(_smsKey)) await Settings.SetAsync(SettingKeys.SmsApiKey, _smsKey.Trim(), true);
+        await Settings.SetAsync(SettingKeys.SmsEnabled, _smsEnabled ? "true" : "false");
+        await Logs.LogAsync(await Me.ActorAsync(), "settings.sms", $"enabled={_smsEnabled}, keyChanged={!string.IsNullOrWhiteSpace(_smsKey)}");
+        _smsKey = string.Empty; _smsKeySaved = await Settings.HasValueAsync(SettingKeys.SmsApiKey); _smsConfigured = await Sms.IsConfiguredAsync();
+        _success = "تنظیمات پیامک ذخیره شد.";
+    }
+
+    private async Task TestSmsAsync()
+    {
+        _busy = true; _error = _success = null;
+        var mobile = IranianValidators.NormalizeMobile(_testMobile);
+        if (mobile is null) _error = "شماره موبایل نامعتبر است.";
+        else
+        {
+            var result = await Sms.SendAsync(mobile);
+            if (result.Success) _success = "درخواست ارسال کد به OTPy موفق بود. پیامک را بررسی کنید."; else _error = result.Error;
+            await Logs.LogAsync(await Me.ActorAsync(), "settings.sms-test", result.Success ? "ok" : result.Error);
+        }
+        _busy = false;
+    }
+
+    private async Task SaveOAuthAsync()
+    {
+        _error = _success = null;
+        var redirect = _redirect.Trim();
+        if (redirect.Length > 0)
+        {
+            var ok = Uri.TryCreate(redirect, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.Host is "localhost" or "127.0.0.1"));
+            if (!ok) { _error = "Redirect URI باید یک آدرس HTTPS معتبر باشد (فقط localhost می‌تواند HTTP باشد)."; return; }
+        }
+        var video = _video.Trim();
+        if (video.Length > 0 && !(video.StartsWith("https://") || video.StartsWith("/"))) { _error = "لینک ویدئو باید با https:// یا / شروع شود."; return; }
+        await Settings.SetAsync(SettingKeys.GoogleRedirectUri, redirect);
+        await Settings.SetAsync(SettingKeys.TutorialVideoUrl, video);
+        await Logs.LogAsync(await Me.ActorAsync(), "settings.oauth", redirect);
+        _defaultRedirect = await OAuth.GetSharedRedirectUriAsync();
+        _success = "تنظیمات OAuth مشترک ذخیره شد. مشتریان باید در صورت تغییر Redirect URI آن را در Google Cloud خود به‌روز کنند.";
+    }
+
+    private async Task SaveGeneralAsync()
+    {
+        _error = _success = null;
+        await Settings.SetAsync(SettingKeys.TrialDays, Math.Clamp(_trialDays, 0, 365).ToString());
+        await Settings.SetAsync(SettingKeys.MonitorMinDiskGb, Math.Max(1, _minDisk).ToString());
+        await Settings.SetAsync(SettingKeys.MonitorIntervalSeconds, Math.Clamp(_interval, 15, 3600).ToString());
+        await Settings.SetAsync(SettingKeys.RegistrationOpen, _registrationOpen ? "true" : "false");
+        await Settings.SetAsync(SettingKeys.MonitorEnabled, _monitorEnabled ? "true" : "false");
+        await Logs.LogAsync(await Me.ActorAsync(), "settings.general");
+        _success = "تنظیمات ذخیره شد.";
+    }
+}

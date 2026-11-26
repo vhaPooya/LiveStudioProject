@@ -1,0 +1,159 @@
+@page "/login"
+@page "/register"
+@layout AuthLayout
+@attribute [AllowAnonymous]
+@implements IDisposable
+@inject IAuthService AuthSvc
+@inject ClientInfo Client
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>@(IsRegister ? "ثبت‌نام" : "ورود") | LiveStudio</PageTitle>
+
+<div class="auth-card">
+    <div class="auth-tabs">
+        <a class="@(!IsRegister ? "active" : "")" href="/login@(ReturnQuery)">ورود</a>
+        <a class="@(IsRegister ? "active" : "")" href="/register@(ReturnQuery)">ثبت‌نام رایگان</a>
+    </div>
+
+    @if (_step == 1)
+    {
+        <h1>@(IsRegister ? "ساخت حساب کاربری" : "ورود به پنل کاربری")</h1>
+        <p class="auth-sub">@(IsRegister ? "با کد ملی و شماره موبایل ثبت‌نام کنید؛ هدیه ثبت‌نام: دوره آزمایشی رایگان." : "کد ملی و شماره موبایل ثبت‌شده را وارد کنید تا کد تأیید پیامک شود.")</p>
+        <Notice Error="@_error" Success="@_info" />
+        <form @onsubmit="SendAsync" @onsubmit:preventDefault>
+            @if (IsRegister)
+            {
+                <div class="mb-3"><label class="form-label" for="fullName">نام و نام خانوادگی</label>
+                    <input id="fullName" class="form-control" maxlength="120" autocomplete="name" @bind="_fullName" @bind:event="oninput" placeholder="مثلاً علی رضایی" /></div>
+            }
+            <div class="mb-3"><label class="form-label" for="nationalCode">کد ملی</label>
+                <input id="nationalCode" class="form-control ltr-input" inputmode="numeric" maxlength="10" autocomplete="off" @bind="_nationalCode" @bind:event="oninput" placeholder="۱۰ رقم" /></div>
+            <div class="mb-4"><label class="form-label" for="mobile">شماره موبایل</label>
+                <input id="mobile" class="form-control ltr-input" inputmode="tel" maxlength="14" autocomplete="tel" @bind="_mobile" @bind:event="oninput" placeholder="09123456789" /></div>
+            <button class="btn btn-primary w-100 btn-lg" type="submit" disabled="@_busy">
+                @if (_busy) { <span class="spinner-border spinner-border-sm ms-2"></span> }
+                <i class="bi bi-chat-dots ms-1"></i>دریافت کد تأیید پیامکی
+            </button>
+            @if (IsRegister) { <p class="consent">با ثبت‌نام، <a href="/terms" target="_blank">قوانین و مقررات</a> و <a href="/privacy" target="_blank">حریم خصوصی</a> را می‌پذیرید.</p> }
+            <p class="auth-foot">@if (IsRegister) { <text>قبلاً ثبت‌نام کرده‌اید؟ <a href="/login@(ReturnQuery)">وارد شوید</a></text> } else { <text>حساب ندارید؟ <a href="/register@(ReturnQuery)">ثبت‌نام کنید</a></text> }</p>
+        </form>
+    }
+    else
+    {
+        <h1>تأیید شماره موبایل</h1>
+        <p class="auth-sub">کد تأیید به شماره <strong class="ltr-text">@_mobile</strong> پیامک شد. <button class="link-btn" @onclick="Back">ویرایش شماره</button></p>
+        <Notice Error="@_error" Success="@_info" />
+        <form @onsubmit="VerifyAsync" @onsubmit:preventDefault>
+            <div class="mb-3"><label class="form-label" for="otp">کد تأیید</label>
+                <input id="otp" class="form-control otp-input ltr-input" inputmode="numeric" maxlength="8" autocomplete="one-time-code" @bind="_code" @bind:event="oninput" placeholder="------" autofocus /></div>
+            <button class="btn btn-primary w-100 btn-lg" type="submit" disabled="@(_busy || _code.Length < 4)">
+                @if (_busy) { <span class="spinner-border spinner-border-sm ms-2"></span> }
+                <i class="bi bi-shield-check ms-1"></i>@(IsRegister ? "تأیید و ساخت حساب" : "تأیید و ورود")
+            </button>
+            <div class="resend">
+                @if (_cooldown > 0) { <span>ارسال مجدد کد تا @_cooldown ثانیه دیگر</span> }
+                else { <button type="button" class="link-btn" @onclick="ResendAsync" disabled="@_busy">ارسال مجدد کد</button> }
+            </div>
+        </form>
+    }
+    <p class="auth-secure"><i class="bi bi-lock-fill"></i>اطلاعات شما فقط برای تأیید هویت استفاده می‌شود.</p>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+
+    private bool IsRegister => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("register", StringComparison.OrdinalIgnoreCase);
+    private string ReturnQuery => string.IsNullOrWhiteSpace(ReturnUrl) ? string.Empty : "?returnUrl=" + Uri.EscapeDataString(ReturnUrl);
+
+    private int _step = 1, _cooldown;
+    private bool _busy;
+    private string _fullName = string.Empty, _nationalCode = string.Empty, _mobile = string.Empty, _code = string.Empty;
+    private string? _error, _info;
+    private System.Timers.Timer? _timer;
+
+    // Switching /login <-> /register reuses this component with unchanged parameters, so Blazor would not re-render by itself.
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        _step = 1; _error = _info = null; _code = string.Empty; _timer?.Stop(); _cooldown = 0;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        var state = await AuthState.GetAuthenticationStateAsync();
+        if (state.User.IsInRole(Roles.Customer)) Navigation.NavigateTo("/panel", replace: true);
+    }
+
+    private AuthMode Mode => IsRegister ? AuthMode.Register : AuthMode.Login;
+
+    private async Task SendAsync()
+    {
+        _error = _info = null; _busy = true;
+        try
+        {
+            var result = await AuthSvc.SendOtpAsync(Mode, _nationalCode, _mobile, _fullName, Client.Ip);
+            if (!result.Success)
+            {
+                _error = result.Error;
+                if (result.CooldownSeconds > 0) { _step = 2; StartCooldown(result.CooldownSeconds); _error = null; _info = "کدی که قبلاً دریافت کرده‌اید هنوز معتبر است."; }
+                return;
+            }
+            _mobile = IranianValidators.NormalizeMobile(_mobile) ?? _mobile;
+            _step = 2; _code = string.Empty;
+            StartCooldown(result.CooldownSeconds);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ResendAsync()
+    {
+        _error = _info = null; _busy = true;
+        try
+        {
+            var result = await AuthSvc.SendOtpAsync(Mode, _nationalCode, _mobile, _fullName, Client.Ip);
+            if (result.Success) { _info = "کد جدید ارسال شد."; StartCooldown(result.CooldownSeconds); }
+            else { _error = result.Error; if (result.CooldownSeconds > 0) StartCooldown(result.CooldownSeconds); }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task VerifyAsync()
+    {
+        _error = _info = null; _busy = true;
+        try
+        {
+            var result = await AuthSvc.VerifyOtpAsync(Mode, _nationalCode, _mobile, _code, _fullName, Client.Ip, Client.UserAgent);
+            if (!result.Success || result.Ticket is null) { _error = result.Error ?? "تأیید ناموفق بود."; return; }
+            var redirect = await JS.InvokeAsync<string>("lsSite.signIn", result.Ticket);
+            var target = IsSafeReturn(ReturnUrl) ? ReturnUrl! : redirect;
+            Navigation.NavigateTo(target, forceLoad: true);
+        }
+        catch (JSException ex) { _error = ex.Message.Split('\n')[0]; }
+        finally { _busy = false; }
+    }
+
+    private static bool IsSafeReturn(string? url) =>
+        !string.IsNullOrWhiteSpace(url) && url.StartsWith('/') && !url.StartsWith("//") && !url.StartsWith("/\\")
+        && !url.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) && !url.StartsWith("/auth", StringComparison.OrdinalIgnoreCase);
+
+    private void Back() { _step = 1; _error = _info = null; _timer?.Stop(); }
+
+    private void StartCooldown(int seconds)
+    {
+        _cooldown = seconds;
+        _timer?.Dispose();
+        _timer = new System.Timers.Timer(1000);
+        _timer.Elapsed += (_, _) =>
+        {
+            _cooldown = Math.Max(0, _cooldown - 1);
+            if (_cooldown == 0) _timer?.Stop();
+            _ = InvokeAsync(StateHasChanged);
+        };
+        _timer.Start();
+    }
+
+    public void Dispose() { Navigation.LocationChanged -= OnLocationChanged; _timer?.Dispose(); }
+}

@@ -1,0 +1,119 @@
+@page "/panel/subscription"
+@attribute [Authorize(Policy = "Customer")]
+@inject CurrentUser User
+@inject ISubscriptionService Subscriptions
+@inject IPaymentService Payments
+@inject NavigationManager Navigation
+
+<PageTitle>اشتراک و پرداخت | LiveStudio</PageTitle>
+
+<header class="topbar"><div><div class="eyebrow">BILLING / SUBSCRIPTION</div><h1>اشتراک و پرداخت</h1></div></header>
+
+<Notice Error="@_error" Success="@_success" />
+
+<section class="panel mt-3 sub-summary">
+    <div class="sub-hero">
+        <div class="ring" style="--p:@(_sub.IsActive ? _sub.Percent : 0)"><div><strong>@(_sub.IsActive ? _sub.DaysLeft : 0)</strong><small>روز باقی‌مانده</small></div></div>
+        <div class="sub-info">
+            <div><small>طرح فعلی</small><strong>@_sub.PlanName</strong></div>
+            <div><small>وضعیت</small><strong class="@(_sub.IsActive ? "text-ok" : "text-bad")">@(_sub.IsActive ? "فعال" : "غیرفعال")</strong></div>
+            <div><small>تاریخ پایان</small><strong>@Fa.Date(_sub.EndsAt)</strong></div>
+            @if (_sub.IsActive) { <div class="form-text" style="grid-column:1/-1">با تمدید، مدت جدید به انتهای اشتراک فعلی شما اضافه می‌شود؛ هیچ روزی از بین نمی‌رود.</div> }
+        </div>
+    </div>
+</section>
+
+@if (!_checkoutAvailable)
+{
+    <div class="notice notice-warning mt-3"><i class="bi bi-info-circle ms-2"></i>پرداخت آنلاین در حال حاضر فعال نیست. برای خرید یا تمدید اشتراک از بخش «تیکت‌ها» با پشتیبانی هماهنگ کنید.</div>
+}
+
+<section class="panel mt-3">
+    <div class="panel-heading"><div><div class="eyebrow">PLANS</div><h3>@(_sub.IsActive ? "تمدید یا ارتقای اشتراک" : "انتخاب طرح")</h3></div>
+        @if (_hasYearly && _hasMonthly) { <div class="price-toggle compact"><button class="@(!_yearly ? "on" : "")" @onclick="() => _yearly = false">ماهانه</button><button class="@(_yearly ? "on" : "")" @onclick="() => _yearly = true">سالانه</button></div> }</div>
+    <div class="price-grid compact">
+        @foreach (var p in Visible)
+        {
+            <article class="price-card @(p.IsPopular ? "popular" : "") @(_preselect == p.Id ? "selected" : "")">
+                @if (!string.IsNullOrWhiteSpace(p.BadgeText)) { <span class="price-badge">@p.BadgeText</span> }
+                <h3>@p.Name</h3><p class="price-tag">@p.Tagline</p>
+                <div class="price-amount">@if (p.OldPrice is > 0) { <s>@Fa.Num(p.OldPrice.Value)</s> }<strong>@Fa.Num(p.Price)</strong><span>تومان / @Fa.Duration(p.DurationDays)</span></div>
+                <ul class="price-features">@foreach (var line in p.FeaturesText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) { <li><i class="bi bi-check2"></i>@line</li> }</ul>
+                <button class="btn @(p.IsPopular ? "btn-primary" : "btn-outline-secondary") w-100" disabled="@(!_checkoutAvailable || _busy)" @onclick="() => PayAsync(p)">
+                    <i class="bi bi-credit-card ms-1"></i>@(_sub.IsActive ? "تمدید با این طرح" : "پرداخت و فعال‌سازی")</button>
+            </article>
+        }
+    </div>
+</section>
+
+<section class="panel mt-3">
+    <div class="panel-heading"><div><div class="eyebrow">PAYMENTS</div><h3>تاریخچه پرداخت‌ها</h3></div></div>
+    <div class="toolbar"><SearchBox Value="@_query" ValueChanged="OnSearch" Placeholder="جستجو در شماره پرداخت، طرح یا شماره پیگیری..." />
+        <select class="form-select" @onchange="OnStatus"><option value="">همه وضعیت‌ها</option>@foreach (var s in Enum.GetValues<PaymentStatus>()) { <option value="@((int)s)">@Fa.PaymentStatusText(s)</option> }</select></div>
+    @if (_payments.Items.Count == 0) { <div class="empty-state"><div class="empty-icon"><i class="bi bi-receipt"></i></div><strong>پرداختی ثبت نشده است</strong></div> }
+    else
+    {
+        <div class="table-wrap"><table class="data-table">
+            <thead><tr><th>شماره</th><th>طرح</th><th>مبلغ</th><th>تاریخ</th><th>شماره پیگیری</th><th>وضعیت</th></tr></thead>
+            <tbody>@foreach (var r in _payments.Items)
+            {
+                <tr><td>#@r.Payment.Number</td><td>@r.Payment.PlanName</td><td>@Fa.Money(r.Payment.Amount)</td><td>@Fa.Date(r.Payment.CreatedAt, true)</td>
+                    <td class="ltr-text">@(r.Payment.RefId ?? "—")</td><td><span class="b @Fa.PaymentStatusClass(r.Payment.Status)">@Fa.PaymentStatusText(r.Payment.Status)</span></td></tr>
+            }</tbody></table></div>
+        <Pager Page="_payments.Page" TotalPages="_payments.TotalPages" Total="_payments.Total" PageChanged="GoPage" />
+    }
+</section>
+
+@code {
+    private Guid _userId;
+    private SubscriptionInfo _sub = SubscriptionInfo.None;
+    private IReadOnlyList<SubscriptionPlan> _plans = [];
+    private PagedResult<PaymentRow> _payments = PagedResult<PaymentRow>.Empty();
+    private bool _checkoutAvailable, _yearly, _hasYearly, _hasMonthly, _busy;
+    private string? _error, _success, _query;
+    private PaymentStatus? _status;
+    private int _page = 1;
+    private Guid? _preselect;
+
+    private IEnumerable<SubscriptionPlan> Visible => _plans.Where(p => _hasYearly && _hasMonthly ? (p.DurationDays > 31) == _yearly : true);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _userId = await User.UserIdAsync() ?? Guid.Empty;
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(Navigation.ToAbsoluteUri(Navigation.Uri).Query);
+        if (query.TryGetValue("pay", out var pay))
+        {
+            var message = query.TryGetValue("message", out var m) ? m.ToString() : null;
+            if (pay.ToString() == "ok") _success = message; else _error = message;
+        }
+        if (query.TryGetValue("plan", out var plan) && Guid.TryParse(plan, out var planId)) _preselect = planId;
+
+        _plans = await Subscriptions.GetPlansAsync(true);
+        _hasYearly = _plans.Any(p => p.DurationDays > 31);
+        _hasMonthly = _plans.Any(p => p.DurationDays <= 31);
+        var selected = _plans.FirstOrDefault(p => p.Id == _preselect);
+        if (selected is not null && _hasYearly && _hasMonthly) _yearly = selected.DurationDays > 31;
+        _checkoutAvailable = await Payments.IsCheckoutAvailableAsync();
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _sub = await Subscriptions.GetCurrentAsync(_userId);
+        _payments = await Payments.SearchAsync(_userId, _query, _status, _page, 8);
+    }
+
+    private async Task PayAsync(SubscriptionPlan plan)
+    {
+        _busy = true; _error = _success = null;
+        var baseUrl = Navigation.BaseUri.TrimEnd('/');
+        var result = await Payments.StartCheckoutAsync(_userId, plan.Id, (await User.ActorAsync()).Ip, baseUrl);
+        _busy = false;
+        if (!result.Success || string.IsNullOrWhiteSpace(result.RedirectUrl)) { _error = result.Error ?? "شروع پرداخت ناموفق بود."; await RefreshAsync(); return; }
+        Navigation.NavigateTo(result.RedirectUrl, forceLoad: true);
+    }
+
+    private async Task OnSearch(string text) { _query = text; _page = 1; await RefreshAsync(); }
+    private async Task OnStatus(ChangeEventArgs e) { _status = int.TryParse(e.Value?.ToString(), out var v) ? (PaymentStatus)v : null; _page = 1; await RefreshAsync(); }
+    private async Task GoPage(int page) { _page = page; await RefreshAsync(); }
+}

@@ -1,0 +1,200 @@
+@page "/studio/{BroadcastId}/console"
+@attribute [Authorize(Policy = "Customer")]
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@using System.Net.Http.Json
+@using System.Text.Json
+@inject StudioAccess Access
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<PageTitle>کنسول تیم | LiveStudio</PageTitle>
+
+<div class="sy-studio">
+    <header class="sy-top">
+        <a class="sy-brand" href="/panel/team" title="بازگشت"><i class="bi bi-broadcast-pin"></i><strong>LiveStudio</strong></a>
+        <span class="sy-title">کنسول تیم<small>@BroadcastId</small></span>
+        @if (_ctx is not null) { <span class="sy-role">@StudioRoles.Title(_ctx.Role)</span> }
+        <span class="sy-spacer"></span>
+        <span class="sy-conn"><i class="bi bi-circle-fill" style="color:@(_connected ? "#37d6a0" : "#f4b860")"></i>@_status</span>
+        <button class="sy-link" @onclick="ToggleThemeAsync" title="تم روشن / تیره"><i class="bi bi-circle-half"></i><span>تم</span></button>
+        <a class="sy-link" href="/panel/team"><i class="bi bi-people"></i><span>تیم</span></a>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="notice notice-error sy-notice"><i class="bi bi-exclamation-triangle-fill ms-2"></i>@_error<button class="sy-x" aria-label="بستن" @onclick="() => _error = null"><i class="bi bi-x-lg"></i></button></div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_event))
+    {
+        <div class="notice notice-success sy-notice"><i class="bi bi-info-circle-fill ms-2"></i>@_event<button class="sy-x" aria-label="بستن" @onclick="() => _event = null"><i class="bi bi-x-lg"></i></button></div>
+    }
+
+    @if (_ctx is null)
+    {
+        <div class="sy-lobby" style="position:static;min-height:60vh"><div class="sy-lobby-card"><i class="bi bi-shield-lock"></i><h3>دسترسی ندارید</h3><p>شما عضو تیم این استودیو نیستید یا دسترسی شما برداشته شده است.</p><a class="btn btn-primary" href="/panel/team">بازگشت</a></div></div>
+    }
+    else
+    {
+        <div class="ls-composer-layout" style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:12px;padding:12px;overflow:hidden">
+            <div class="ls-composer-monitor-wrap" style="display:flex;flex-direction:column;gap:10px;min-height:0">
+                <div class="sy-lobby-video" style="flex:none">
+                    <video id="consoleVideo" autoplay playsinline muted style="transform:none;background:#050a12"></video>
+                    @if (!_connected)
+                    {
+                        <div class="sy-lobby" style="position:absolute;inset:0;background:rgba(5,10,18,.85)"><div class="sy-lobby-card"><h3>اتصال به استودیو</h3><p>تصویر خروجی میزبان را می‌بینید و فقط دستورات مجاز نقش شما اجرا می‌شود.</p><button class="btn btn-primary" @onclick="ConnectAsync" disabled="@_busy"><i class="bi bi-door-open ms-1"></i>@(_busy ? "در حال اتصال..." : "ورود به کنسول")</button></div></div>
+                    }
+                </div>
+                @if (_connected)
+                {
+                    <div class="sy-checks">
+                        <span class="@(_hostOnline ? "ok" : "bad")">@(_hostOnline ? "استودیوی میزبان آنلاین است" : "استودیوی میزبان هنوز متصل نیست")</span>
+                        @if (!string.IsNullOrEmpty(_nowPlaying)) { <span class="ok">در حال پخش: @_nowPlaying</span> }
+                        @if (_stats is not null) { <span>بیننده: @_stats.ConcurrentViewers</span><span>بازدید: @_stats.Views</span><span>لایک: @_stats.Likes</span> }
+                    </div>
+                }
+            </div>
+
+            <aside class="sy-panel" style="display:flex;flex-direction:column;min-height:0;position:static;width:auto">
+                <div class="d-flex flex-wrap gap-1 p-2" style="border-bottom:1px solid var(--sy-line)">
+                    @foreach (var t in Tabs)
+                    {
+                        <button class="btn btn-sm @(_tab == t.Key ? "btn-primary" : "btn-outline-secondary")" @onclick="() => _tab = t.Key"><i class="bi @t.Icon ms-1"></i>@t.Label</button>
+                    }
+                </div>
+                <div class="p-3" style="overflow:auto;flex:1;min-height:0">
+                    @if (_tab == "comments" && _ctx.Can(StudioPerms.Chat))
+                    {
+                        <CommentsFeed Api="_ctx.Api" BroadcastId="@BroadcastId" Active="_connected" CanModerate="_ctx.Can(StudioPerms.Moderate)"
+                                      OnShow="@(_ctx.Can(StudioPerms.Moderate) ? EventCallback.Factory.Create<CommentsFeed.CommentShow>(this, ShowCommentAsync) : default)"
+                                      OnHide="@(_ctx.Can(StudioPerms.Moderate) ? EventCallback.Factory.Create(this, HideCommentAsync) : default)" />
+                    }
+                    else if (_tab == "chat") { <StudioChat IsConnected="_connected" OnUnread="n => Task.CompletedTask" /> }
+                    else if (_tab == "video" && _ctx.Can(StudioPerms.Video)) { <RundownPanel OwnerId="_ctx.OwnerId" BroadcastId="@BroadcastId" Remote="true" NowPlaying="@_nowPlaying" /> }
+                    else if (_tab == "graphics" && _ctx.Can(StudioPerms.Layout)) { <RemoteGraphicsPanel Active="_banners" /> }
+                    else if (_tab == "sfx" && _ctx.Can(StudioPerms.Sfx)) { <SoundboardPanel Remote="true" /> }
+                    else { <div class="ls-layer-empty">این بخش برای نقش شما فعال نیست.</div> }
+                </div>
+            </aside>
+        </div>
+    }
+</div>
+
+@code {
+    private sealed record Tab(string Key, string Label, string Icon);
+    private sealed record LiveKitSessionResponse(string Url, string Token, string RoomName, string ParticipantIdentity, DateTimeOffset ExpiresAt);
+    private sealed record StatsDto(int ConcurrentViewers, long Views, long Likes);
+    private sealed record HostState(MediaState? Media, List<string>? Banners);
+    private sealed record MediaState(string AssetId, string Title);
+
+    [Parameter] public string BroadcastId { get; set; } = string.Empty;
+    [SupplyParameterFromQuery(Name = "owner")] public Guid? Owner { get; set; }
+
+    private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
+    private StudioContext? _ctx;
+    private bool _connected, _busy, _hostOnline;
+    private string _status = "آماده اتصال", _tab = "comments";
+    private string? _error, _event, _nowPlaying;
+    private IReadOnlyCollection<string> _banners = [];
+    private StatsDto? _stats;
+    private DotNetObjectReference<TeamConsole>? _ref;
+    private CancellationTokenSource? _cts;
+    private IReadOnlyList<Tab> Tabs = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _ctx = await Access.ResolveAsync(Owner);
+        if (_ctx is null) return;
+        if (_ctx.IsOwner || _ctx.Role == StudioRoles.Host) { Navigation.NavigateTo($"/studio/{Uri.EscapeDataString(BroadcastId)}" + (_ctx.IsOwner ? "" : $"?owner={_ctx.OwnerId}"), replace: true); return; }
+        var tabs = new List<Tab>();
+        if (_ctx.Can(StudioPerms.Chat)) tabs.Add(new("comments", "کامنت‌ها", "bi-chat-square-quote"));
+        tabs.Add(new("chat", "چت تیم", "bi-chat-dots"));
+        if (_ctx.Can(StudioPerms.Video)) tabs.Add(new("video", "پخش ویدئو", "bi-collection-play"));
+        if (_ctx.Can(StudioPerms.Layout)) tabs.Add(new("graphics", "گرافیک", "bi-card-heading"));
+        if (_ctx.Can(StudioPerms.Sfx)) tabs.Add(new("sfx", "صداها", "bi-music-note-beamed"));
+        Tabs = tabs;
+        _tab = tabs[0].Key;
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (_ctx is null) return;
+        _busy = true; _error = null;
+        try
+        {
+            var response = await _ctx.Api.PostAsJsonAsync("/api/v1/livekit/sessions", new { BroadcastId, Role = _ctx.Role, DisplayName = _ctx.UserName }, _json);
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException("اتصال ممکن نشد؛ ممکن است اشتراک صاحب استودیو فعال نباشد یا پخش پیدا نشد.");
+            var session = await response.Content.ReadFromJsonAsync<LiveKitSessionResponse>(_json) ?? throw new InvalidOperationException("پاسخ نشست معتبر نیست.");
+            _ref ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("liveStudio.setStatusHandler", _ref);
+            await JS.InvokeVoidAsync("lsTeam.setNotify", _ref);
+            await JS.InvokeAsync<string>("liveStudio.connectObserver", session.Url, session.Token, "consoleVideo");
+            _connected = true; _status = "متصل";
+            _cts = new CancellationTokenSource(); _ = StatsLoopAsync(_cts.Token);
+        }
+        catch (Exception ex) { _error = ex.Message; _status = "خطا در اتصال"; }
+        finally { _busy = false; }
+    }
+
+    private async Task StatsLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && _ctx is not null)
+        {
+            try
+            {
+                var r = await _ctx.Api.PostAsync($"/api/v1/youtube/broadcasts/{Uri.EscapeDataString(BroadcastId)}/stats", null, ct);
+                if (r.IsSuccessStatusCode) { _stats = await r.Content.ReadFromJsonAsync<StatsDto>(_json, ct); await InvokeAsync(StateHasChanged); }
+            }
+            catch (OperationCanceledException) { break; }
+            catch { }
+            try { await Task.Delay(TimeSpan.FromSeconds(45), ct); } catch (OperationCanceledException) { break; }
+        }
+    }
+
+    private async Task ShowCommentAsync(CommentsFeed.CommentShow c)
+    {
+        try { await JS.InvokeVoidAsync("lsTeam.send", "comment.show", new { author = c.Author, text = c.Text, amount = c.Amount ?? "" }); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task HideCommentAsync()
+    {
+        try { await JS.InvokeVoidAsync("lsTeam.send", "comment.hide", new { }); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task ToggleThemeAsync()
+    {
+        var p = await JS.InvokeAsync<Prefs>("lsPrefs.get");
+        await JS.InvokeVoidAsync("lsPrefs.set", new { theme = p.Theme == "light" ? "dark" : "light" });
+    }
+    private sealed record Prefs(string Theme, string Phone);
+
+    [JSInvokable] public Task OnLiveKitStatusChanged(string state, string message)
+    {
+        _connected = state is "connected" or "reconnecting" ? _connected || state == "connected" : false;
+        _status = state == "connected" ? "متصل" : message;
+        return InvokeAsync(StateHasChanged);
+    }
+    [JSInvokable] public Task OnLiveKitDevicesChanged() => Task.CompletedTask;
+    [JSInvokable] public Task OnTeamEvent(string text) { _event = text; return InvokeAsync(StateHasChanged); }
+    [JSInvokable] public Task OnHostState(string json)
+    {
+        try
+        {
+            var s = JsonSerializer.Deserialize<HostState>(json, _json);
+            _hostOnline = true; _nowPlaying = s?.Media?.Title; _banners = s?.Banners ?? [];
+        }
+        catch { }
+        return InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts?.Cancel();
+        try { await JS.InvokeVoidAsync("lsTeam.setNotify", (object?)null); await JS.InvokeVoidAsync("liveStudio.setStatusHandler", (object?)null); await JS.InvokeVoidAsync("liveStudio.disconnect"); }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+        _ref?.Dispose();
+    }
+}

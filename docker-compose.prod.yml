@@ -1,0 +1,53 @@
+# Production stack: Caddy (auto HTTPS) -> web, api (+ redis).
+# LiveKit server / egress stay in your existing Docker stack (versions unchanged);
+# point LIVEKIT_* values below to it. Web and Api share one /data volume (SQLite + keys).
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      LIVEKIT_DOMAIN: ${LIVEKIT_DOMAIN}
+      LIVEKIT_UPSTREAM: ${LIVEKIT_UPSTREAM:-host.docker.internal:7880}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [web]
+
+  web:
+    build: { context: ., dockerfile: Dockerfile.web }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      Api__BaseUrl: http://api:8080
+      Platform__PublicBaseUrl: https://${SITE_DOMAIN}
+      Platform__AllowPaymentSimulator: "false"
+      Media__RootPath: /data/media
+    volumes: [app-data:/data]
+    depends_on: [api]
+
+  api:
+    build: { context: ., dockerfile: Dockerfile.api }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      Cors__AllowedOrigins__0: https://${SITE_DOMAIN}
+      LiveKit__ServerUrl: ${LIVEKIT_SERVER_URL:-http://host.docker.internal:7880}
+      LiveKit__PublicUrl: wss://${LIVEKIT_DOMAIN}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes: [app-data:/data]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis-data:/data]
+
+volumes:
+  app-data:
+  caddy-data:
+  caddy-config:
+  redis-data:

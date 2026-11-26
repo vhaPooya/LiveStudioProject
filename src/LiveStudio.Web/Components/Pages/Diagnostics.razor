@@ -1,0 +1,123 @@
+@page "/diagnostics"
+@attribute [Authorize(Policy = "Customer")]
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+
+<PageTitle>عیب‌یابی سیستم | LiveStudio</PageTitle>
+
+<div class="page-header">
+    <div>
+        <div class="eyebrow">SYSTEM CHECK</div>
+        <h1>عیب‌یابی و سلامت سیستم</h1>
+        <p>بررسی امکانات مرورگر و پیش‌نیازهای اجرای پخش زنده و ضبط، بدون فعال‌کردن دوربین یا میکروفون.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="RunDiagnostics" disabled="@_running">
+        <i class="bi bi-arrow-repeat ms-1"></i>
+        @(_running ? "در حال بررسی..." : "اجرای بررسی")
+    </button>
+</div>
+
+<div class="diagnostics-summary">
+    <div class="diagnostics-summary-icon"><i class="bi bi-shield-check"></i></div>
+    <div>
+        <strong>@SummaryTitle</strong>
+        <span>@SummaryText</span>
+    </div>
+    @if (_items.Count > 0)
+    {
+        <div class="diagnostics-counts">
+            <span class="diag-count diag-ok">@_items.Count(x => x.Status == "ok") موفق</span>
+            <span class="diag-count diag-warn">@_items.Count(x => x.Status == "warning") نیازمند توجه</span>
+            <span class="diag-count diag-fail">@_items.Count(x => x.Status == "error") ناموفق</span>
+        </div>
+    }
+</div>
+
+@if (_items.Count == 0)
+{
+    <div class="empty-state diagnostics-empty">
+        <i class="bi bi-clipboard2-pulse"></i>
+        <h3>هنوز بررسی اجرا نشده است</h3>
+        <p>برای مشاهده وضعیت مرورگر و قابلیت‌های موردنیاز استودیو، دکمه «اجرای بررسی» را بزنید.</p>
+    </div>
+}
+else
+{
+    <div class="diagnostics-grid">
+        @foreach (var item in _items)
+        {
+            <article class="diagnostic-card">
+                <div class="diagnostic-card-icon @StatusClass(item.Status)">
+                    <i class="@Icon(item.Status)"></i>
+                </div>
+                <div class="diagnostic-card-content">
+                    <div class="diagnostic-card-title">
+                        <strong>@item.Name</strong>
+                        <span class="diagnostic-status @StatusClass(item.Status)">@StatusLabel(item.Status)</span>
+                    </div>
+                    <p>@item.Details</p>
+                </div>
+            </article>
+        }
+    </div>
+    <div class="diagnostics-note">
+        <i class="bi bi-info-circle"></i>
+        این بررسی، قابلیت‌های سمت مرورگر را می‌سنجد و جایگزین Build دات‌نت، بررسی سرور LiveKit یا آزمایش واقعی انتشار و ضبط نیست.
+        برای تست دوربین و میکروفون، از صفحه استودیو و با اجازه خودتان استفاده کنید.
+    </div>
+}
+
+@code {
+    private bool _running;
+    private List<DiagnosticItem> _items = [];
+
+    private string SummaryTitle => _items.Count == 0 ? "آماده بررسی" :
+        _items.Any(x => x.Status == "error") ? "برخی پیش‌نیازها در دسترس نیستند" :
+        _items.Any(x => x.Status == "warning") ? "بررسی انجام شد؛ مواردی نیازمند توجه هستند" : "بررسی مرورگر با موفقیت انجام شد";
+
+    private string SummaryText => _items.Count == 0
+        ? "بررسی بدون دسترسی به دوربین و میکروفون انجام می‌شود."
+        : $"آخرین بررسی: {DateTime.Now:yyyy/MM/dd HH:mm:ss}";
+
+    private async Task RunDiagnostics()
+    {
+        _running = true;
+        try
+        {
+            _items = await JS.InvokeAsync<List<DiagnosticItem>>("liveStudioDiagnostics.run");
+        }
+        catch (Exception ex)
+        {
+            _items = [new DiagnosticItem { Name = "اجرای بررسی", Status = "error", Details = $"امکان اجرای بررسی جاوااسکریپت وجود ندارد: {ex.Message}" }];
+        }
+        finally { _running = false; }
+    }
+
+    private static string StatusClass(string status) => status switch
+    {
+        "ok" => "is-ok",
+        "warning" => "is-warning",
+        _ => "is-error"
+    };
+
+    private static string StatusLabel(string status) => status switch
+    {
+        "ok" => "مناسب",
+        "warning" => "هشدار",
+        _ => "ناموفق"
+    };
+
+    private static string Icon(string status) => status switch
+    {
+        "ok" => "bi bi-check-lg",
+        "warning" => "bi bi-exclamation-triangle",
+        _ => "bi bi-x-lg"
+    };
+
+    public sealed class DiagnosticItem
+    {
+        public string Name { get; set; } = "";
+        public string Status { get; set; } = "error";
+        public string Details { get; set; } = "";
+    }
+}

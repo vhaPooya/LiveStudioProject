@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <meta name="theme-color" content="#101827" />
+    <link rel="preload" href="lib/vazirmatn/Vazirmatn-VF.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="fonts.css" />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.rtl.min.css"]" />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap-icons/font/bootstrap-icons.min.css"]" />
+    <link rel="stylesheet" href="main.css" />
+    <link rel="stylesheet" href="platform.css" />
+    <link rel="stylesheet" href="studio.css" />
+    <link rel="stylesheet" href="site.css" />
+
+    <link rel="icon" type="image/svg+xml" href="@Assets["favicon.svg"]" />
+    <script>try{var p=JSON.parse(localStorage.getItem("livestudio.prefs.v1")||"{}");var h=document.documentElement;h.setAttribute("data-theme",p.theme==="light"?"light":"dark");h.setAttribute("data-phone",(p.phone==="on"||(p.phone!=="off"&&matchMedia("(max-width:860px)").matches))?"1":"0")}catch(e){}</script>
+    <HeadOutlet />
+</head>
+<body>
+    <Routes @rendermode="InteractiveServer" />
+
+    <div id="blazor-error-ui">
+        خطایی رخ داد. صفحه را تازه‌سازی کنید.
+        <a href="." class="reload">تازه‌سازی</a>
+        <a class="dismiss">×</a>
+    </div>
+
+    <!-- Bootstrap JavaScript -->
+    <script src="@Assets["lib/bootstrap/dist/js/bootstrap.bundle.min.js"]"></script>
+    <script src="lib/livekit-client/livekit-client.umd.js"></script>
+    <script src="livestudio-site.js"></script>
+    <script src="livestudio-ui.js"></script>
+    <script src="livestudio-effects.js"></script>
+    <script src="livestudio-audio.js"></script>
+    <script src="livestudio-sfx.js"></script>
+    <script src="livestudio-livekit.js"></script>
+    <script src="livestudio-team.js"></script>
+    <script src="livestudio-creator.js"></script>
+    <script src="livestudio-media.js"></script>
+    <script src="livestudio-compositor.js"></script>
+    <script src="livestudio-diagnostics.js"></script>
+
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+@page "/admin/users"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:users")]
+@inject IUserService Users
+@inject NavigationManager Navigation
+
+<PageTitle>کاربران | مدیریت LiveStudio</PageTitle>
+<header class="topbar"><div><div class="eyebrow">ADMIN / USERS</div><h1>مدیریت کاربران</h1></div></header>
+
+<section class="panel mt-3">
+    <div class="toolbar"><SearchBox Value="@_query" ValueChanged="OnSearch" Placeholder="جستجو در نام، کد ملی، موبایل، ایمیل یا نام کانال..." />
+        <select class="form-select" @onchange="OnFilter"><option value="">همه کاربران</option><option value="subscribed">دارای اشتراک فعال</option><option value="expired">بدون اشتراک فعال</option><option value="connected">کانال متصل</option><option value="blocked">مسدود</option></select></div>
+    @if (_result.Items.Count == 0) { <div class="empty-state"><div class="empty-icon"><i class="bi bi-people"></i></div><strong>کاربری پیدا نشد</strong></div> }
+    else
+    {
+        <div class="table-wrap"><table class="data-table clickable">
+            <thead><tr><th>کاربر</th><th>موبایل</th><th>کد ملی</th><th>اشتراک</th><th>پایان اشتراک</th><th>OAuth</th><th>عضویت</th><th>وضعیت</th></tr></thead>
+            <tbody>@foreach (var u in _result.Items)
+            {
+                <tr @onclick='() => Navigation.NavigateTo($"/admin/users/{u.Id}")'>
+                    <td><div class="cell-user"><span class="avatar sm">@Fa.Initials(u.FullName)</span><strong>@u.FullName</strong></div></td>
+                    <td class="ltr-text">@u.Mobile</td><td class="ltr-text">@u.NationalCode</td>
+                    <td>@(u.PlanName ?? "—")</td><td>@Fa.Date(u.SubscriptionEndsAt)</td>
+                    <td><span class="b @Fa.OAuthStateClass(u.OAuthState)">@Fa.OAuthState(u.OAuthState)</span></td>
+                    <td>@Fa.Date(u.CreatedAt)</td>
+                    <td>@if (u.IsBlocked) { <span class="b b-red">مسدود</span> } else { <span class="b b-green">فعال</span> }</td></tr>
+            }</tbody></table></div>
+        <Pager Page="_result.Page" TotalPages="_result.TotalPages" Total="_result.Total" PageChanged="GoPage" />
+    }
+</section>
+
+@code {
+    private PagedResult<UserListItem> _result = PagedResult<UserListItem>.Empty();
+    private string? _query, _filter;
+    private int _page = 1;
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync() => _result = await Users.SearchAsync(_query, _filter, _page, 12);
+    private async Task OnSearch(string text) { _query = text; _page = 1; await LoadAsync(); }
+    private async Task OnFilter(ChangeEventArgs e) { _filter = e.Value?.ToString(); _page = 1; await LoadAsync(); }
+    private async Task GoPage(int page) { _page = page; await LoadAsync(); }
+}

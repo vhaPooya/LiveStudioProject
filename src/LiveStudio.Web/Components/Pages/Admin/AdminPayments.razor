@@ -1,0 +1,67 @@
+@page "/admin/payments"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:payments")]
+@inject CurrentUser Me
+@inject IPaymentService Payments
+@inject IJSRuntime JS
+
+<PageTitle>پرداخت‌ها | مدیریت LiveStudio</PageTitle>
+<header class="topbar"><div><div class="eyebrow">ADMIN / PAYMENTS</div><h1>پرداخت‌های کاربران</h1></div></header>
+<Notice Error="@_error" Success="@_success" />
+
+<section class="panel mt-3">
+    <div class="toolbar"><SearchBox Value="@_query" ValueChanged="OnSearch" Placeholder="جستجو در شماره پرداخت، نام، موبایل، کد ملی، طرح یا شماره پیگیری..." />
+        <select class="form-select" @onchange="OnStatus"><option value="">همه وضعیت‌ها</option>@foreach (var s in Enum.GetValues<PaymentStatus>()) { <option value="@((int)s)">@Fa.PaymentStatusText(s)</option> }</select></div>
+    @if (_result.Items.Count == 0) { <div class="empty-state"><div class="empty-icon"><i class="bi bi-receipt"></i></div><strong>پرداختی پیدا نشد</strong></div> }
+    else
+    {
+        <div class="table-wrap"><table class="data-table">
+            <thead><tr><th>شماره</th><th>کاربر</th><th>طرح</th><th>مبلغ</th><th>تاریخ</th><th>درگاه / پیگیری</th><th>وضعیت</th><th></th></tr></thead>
+            <tbody>@foreach (var r in _result.Items)
+            {
+                <tr><td>#@r.Payment.Number</td>
+                    <td><a href="/admin/users/@r.Payment.UserId"><strong>@r.UserName</strong></a><br /><small class="muted ltr-text">@r.UserMobile</small></td>
+                    <td>@r.Payment.PlanName<br /><small class="muted">@r.Payment.DurationDays روز</small></td><td>@Fa.Money(r.Payment.Amount)</td>
+                    <td>@Fa.Date(r.Payment.CreatedAt, true)</td>
+                    <td class="ltr-text">@r.Payment.Gateway<br /><small class="muted">@(r.Payment.RefId ?? r.Payment.Authority ?? "—")</small></td>
+                    <td><span class="b @Fa.PaymentStatusClass(r.Payment.Status)">@Fa.PaymentStatusText(r.Payment.Status)</span>@if (!string.IsNullOrWhiteSpace(r.Payment.FailureReason)) { <br /><small class="muted">@r.Payment.FailureReason</small> }</td>
+                    <td class="actions">@if (r.Payment.Status != PaymentStatus.Paid)
+                    {
+                        <button class="btn btn-outline-success btn-sm" title="تأیید دستی" @onclick="() => MarkPaid(r)"><i class="bi bi-check2-circle"></i></button>
+                    }
+                    @if (r.Payment.Status == PaymentStatus.Pending) { <button class="btn btn-outline-danger btn-sm" title="لغو" @onclick="() => CancelAsync(r)"><i class="bi bi-x-circle"></i></button> }</td></tr>
+            }</tbody></table></div>
+        <Pager Page="_result.Page" TotalPages="_result.TotalPages" Total="_result.Total" PageChanged="GoPage" />
+    }
+</section>
+
+@code {
+    private PagedResult<PaymentRow> _result = PagedResult<PaymentRow>.Empty();
+    private string? _query, _error, _success;
+    private PaymentStatus? _status;
+    private int _page = 1;
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync() => _result = await Payments.SearchAsync(null, _query, _status, _page, 12);
+    private async Task OnSearch(string text) { _query = text; _page = 1; await LoadAsync(); }
+    private async Task OnStatus(ChangeEventArgs e) { _status = int.TryParse(e.Value?.ToString(), out var v) ? (PaymentStatus)v : null; _page = 1; await LoadAsync(); }
+    private async Task GoPage(int page) { _page = page; await LoadAsync(); }
+
+    private async Task MarkPaid(PaymentRow row)
+    {
+        var note = await JS.InvokeAsync<string?>("prompt", $"تأیید دستی پرداخت #{row.Payment.Number}: شماره پیگیری یا توضیح را وارد کنید (اشتراک کاربر فعال می‌شود):");
+        if (string.IsNullOrWhiteSpace(note)) return;
+        _error = _success = null;
+        var result = await Payments.ManualMarkPaidAsync(row.Payment.Id, note, await Me.ActorAsync());
+        if (result.Success) _success = "پرداخت تأیید و اشتراک کاربر فعال شد."; else _error = result.Error;
+        await LoadAsync();
+    }
+
+    private async Task CancelAsync(PaymentRow row)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"پرداخت #{row.Payment.Number} لغو شود؟")) return;
+        _error = _success = null;
+        var result = await Payments.ManualCancelAsync(row.Payment.Id, await Me.ActorAsync());
+        if (result.Success) _success = "پرداخت لغو شد."; else _error = result.Error;
+        await LoadAsync();
+    }
+}

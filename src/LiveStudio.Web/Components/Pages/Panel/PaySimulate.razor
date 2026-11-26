@@ -1,0 +1,28 @@
+@page "/pay/simulate/{Authority}"
+@attribute [Authorize(Policy = "Customer")]
+@layout AuthLayout
+@inject LiveStudio.Infrastructure.Platform.PlatformOptions Options
+@inject IPaymentService Payments
+@inject NavigationManager Navigation
+
+<PageTitle>شبیه‌ساز درگاه پرداخت</PageTitle>
+<div class="auth-card">
+    <div class="admin-login-badge"><i class="bi bi-bank"></i></div>
+    <h1>شبیه‌ساز درگاه پرداخت</h1>
+    @if (!Options.AllowPaymentSimulator) { <p class="auth-sub">شبیه‌ساز در این محیط غیرفعال است.</p> }
+    else if (_payment is null) { <p class="auth-sub">پرداخت پیدا نشد.</p> }
+    else
+    {
+        <p class="auth-sub">این صفحه فقط برای تست در محیط توسعه است و هیچ مبلغی کسر نمی‌شود.</p>
+        <div class="sim-box"><div><small>طرح</small><strong>@_payment.PlanName</strong></div><div><small>مبلغ</small><strong>@Fa.Money(_payment.Amount)</strong></div><div><small>شماره</small><strong>#@_payment.Number</strong></div></div>
+        <div class="btn-row mt-3"><button class="btn btn-success flex-fill" @onclick="() => Finish(true)"><i class="bi bi-check2-circle ms-1"></i>پرداخت موفق</button>
+            <button class="btn btn-outline-danger flex-fill" @onclick="() => Finish(false)"><i class="bi bi-x-circle ms-1"></i>انصراف</button></div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Authority { get; set; } = string.Empty;
+    private Payment? _payment;
+    protected override async Task OnInitializedAsync() => _payment = await Payments.GetByAuthorityAsync(Authority);
+    private void Finish(bool ok) => Navigation.NavigateTo($"/payment/callback?Authority={Uri.EscapeDataString(Authority)}&Status={(ok ? "OK" : "NOK")}", forceLoad: true);
+}

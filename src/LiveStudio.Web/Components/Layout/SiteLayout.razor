@@ -1,0 +1,82 @@
+@inherits LayoutComponentBase
+@inject IContentService Content
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<div class="site-root">
+    @if (!string.IsNullOrWhiteSpace(_site.AnnouncementBar))
+    {
+        <div class="site-announce"><i class="bi bi-megaphone-fill"></i>@_site.AnnouncementBar</div>
+    }
+    <header class="site-header">
+        <div class="site-container header-inner">
+            <a class="site-brand" href="/">
+                <span class="brand-icon"><i class="bi bi-broadcast-pin"></i></span>
+                <span><strong>@_site.SiteName</strong><small>LIVE STUDIO IN YOUR BROWSER</small></span>
+            </a>
+            <nav class="site-nav @(_menuOpen ? "open" : "")">
+                <a href="/#features" @onclick="CloseMenu">امکانات</a>
+                <a href="/#how" @onclick="CloseMenu">نحوه کار</a>
+                <a href="/#usecases" @onclick="CloseMenu">کاربردها</a>
+                <a href="/#showcase" @onclick="CloseMenu">ابزارها</a>
+                <a href="/#pricing" @onclick="CloseMenu">تعرفه‌ها</a>
+                <a href="/#faq" @onclick="CloseMenu">سوالات متداول</a>
+            </nav>
+            <div class="header-actions">
+                <AuthorizeView>
+                    <Authorized>
+                        @if (context.User.IsInRole("Customer"))
+                        {
+                            <a class="btn btn-primary" href="/panel"><i class="bi bi-grid-1x2-fill ms-1"></i>ورود به پنل</a>
+                        }
+                        else
+                        {
+                            <a class="btn btn-primary" href="/admin"><i class="bi bi-shield-lock-fill ms-1"></i>پنل مدیریت</a>
+                        }
+                    </Authorized>
+                    <NotAuthorized>
+                        <a class="btn btn-ghost" href="/login">ورود</a>
+                        <a class="btn btn-primary" href="/register"><i class="bi bi-rocket-takeoff ms-1"></i>شروع رایگان</a>
+                    </NotAuthorized>
+                </AuthorizeView>
+                <button class="menu-toggle" aria-label="منو" @onclick="() => _menuOpen = !_menuOpen"><i class="bi @(_menuOpen ? "bi-x-lg" : "bi-list")"></i></button>
+            </div>
+        </div>
+    </header>
+
+    <main>@Body</main>
+
+    <footer class="site-footer">
+        <div class="site-container footer-grid">
+            <div class="footer-brand">
+                <a class="site-brand" href="/"><span class="brand-icon"><i class="bi bi-broadcast-pin"></i></span><span><strong>@_site.SiteName</strong><small>LIVE STUDIO IN YOUR BROWSER</small></span></a>
+                <p>پلتفرم پخش زنده و تولید محتوای مستقل، بدون وابستگی به OBS؛ ساخته‌شده برای تولیدکنندگان و رسانه‌های فارسی‌زبان.</p>
+            </div>
+            <div><h5>محصول</h5><a href="/#features">امکانات</a><a href="/#showcase">ابزارهای استودیو</a><a href="/#pricing">تعرفه‌ها</a><a href="/#faq">سوالات متداول</a></div>
+            <div><h5>حساب کاربری</h5><a href="/login">ورود</a><a href="/register">ثبت‌نام رایگان</a><a href="/panel/tickets">پشتیبانی و تیکت</a><a href="/terms">قوانین و مقررات</a><a href="/privacy">حریم خصوصی</a><a href="/refund">بازگشت وجه</a></div>
+            <div>
+                <h5>ارتباط با ما</h5>
+                @if (!string.IsNullOrWhiteSpace(_site.SupportPhone)) { <span><i class="bi bi-telephone ms-1"></i>@_site.SupportPhone</span> }
+                @if (!string.IsNullOrWhiteSpace(_site.SupportEmail)) { <span><i class="bi bi-envelope ms-1"></i>@_site.SupportEmail</span> }
+                @if (!string.IsNullOrWhiteSpace(_site.SupportTelegram)) { <span><i class="bi bi-telegram ms-1"></i>@_site.SupportTelegram</span> }
+                <span><i class="bi bi-chat-dots ms-1"></i>تیکت آنلاین از داخل پنل کاربری</span>
+            </div>
+        </div>
+        <div class="site-container footer-bottom"><span>@_site.FooterText</span><a href="/admin/login">ورود مدیران</a></div>
+    </footer>
+</div>
+
+@code {
+    private SiteContent _site = new();
+    private bool _menuOpen;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _site = await Content.GetSiteContentAsync();
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) { _menuOpen = false; InvokeAsync(StateHasChanged); }
+    private void CloseMenu() => _menuOpen = false;
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

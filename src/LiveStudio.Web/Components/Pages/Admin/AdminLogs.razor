@@ -1,0 +1,37 @@
+@page "/admin/logs"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:logs")]
+@inject IActivityLogService Logs
+
+<PageTitle>لاگ فعالیت‌ها | مدیریت LiveStudio</PageTitle>
+<header class="topbar"><div><div class="eyebrow">ADMIN / ACTIVITY LOG</div><h1>لاگ فعالیت کاربران و مدیران</h1></div></header>
+<section class="panel mt-3">
+    <div class="toolbar"><SearchBox Value="@_query" ValueChanged="OnSearch" Placeholder="جستجو در عملیات، جزئیات، نام، شناسه کاربر یا IP..." />
+        <select class="form-select" @onchange="OnActor"><option value="">همه</option>@foreach (var a in Enum.GetValues<ActorType>()) { <option value="@((int)a)">@Fa.Actor(a)</option> }</select>
+        <select class="form-select" @onchange="OnRange"><option value="">همه زمان‌ها</option><option value="1">۲۴ ساعت اخیر</option><option value="7">۷ روز اخیر</option><option value="30">۳۰ روز اخیر</option></select></div>
+    @if (_result.Items.Count == 0) { <div class="empty-state"><div class="empty-icon"><i class="bi bi-journal-x"></i></div><strong>رکوردی پیدا نشد</strong></div> }
+    else
+    {
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>زمان</th><th>نوع</th><th>کاربر</th><th>عملیات</th><th>جزئیات</th><th>IP</th></tr></thead>
+            <tbody>@foreach (var l in _result.Items)
+            {
+                <tr><td>@Fa.Date(l.At, true)</td><td><span class="b @(l.ActorType == ActorType.Customer ? "b-blue" : l.ActorType == ActorType.System ? "b-gray" : "b-amber")">@Fa.Actor(l.ActorType)</span></td>
+                    <td>@l.ActorName</td><td class="ltr-text cell-strong">@l.Action</td><td>@l.Details</td><td class="ltr-text">@l.Ip</td></tr>
+            }</tbody></table></div>
+        <Pager Page="_result.Page" TotalPages="_result.TotalPages" Total="_result.Total" PageChanged="GoPage" />
+    }
+</section>
+
+@code {
+    private PagedResult<ActivityLog> _result = PagedResult<ActivityLog>.Empty();
+    private string? _query;
+    private ActorType? _actor;
+    private DateTime? _from;
+    private int _page = 1;
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync() => _result = await Logs.SearchAsync(_query, _actor, _from, null, _page, 15);
+    private async Task OnSearch(string text) { _query = text; _page = 1; await LoadAsync(); }
+    private async Task OnActor(ChangeEventArgs e) { _actor = int.TryParse(e.Value?.ToString(), out var v) ? (ActorType)v : null; _page = 1; await LoadAsync(); }
+    private async Task OnRange(ChangeEventArgs e) { _from = int.TryParse(e.Value?.ToString(), out var d) ? DateTime.UtcNow.AddDays(-d) : null; _page = 1; await LoadAsync(); }
+    private async Task GoPage(int page) { _page = page; await LoadAsync(); }
+}

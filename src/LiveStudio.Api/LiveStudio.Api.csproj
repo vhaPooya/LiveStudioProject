@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+ <ItemGroup>
+  <ProjectReference Include="..\LiveStudio.Application\LiveStudio.Application.csproj" />
+  <ProjectReference Include="..\LiveStudio.Infrastructure\LiveStudio.Infrastructure.csproj" />
+  <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
+ </ItemGroup>
+</Project>

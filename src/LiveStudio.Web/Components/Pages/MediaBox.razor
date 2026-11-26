@@ -1,0 +1,285 @@
+@page "/media-box"
+@attribute [Authorize(Policy = "Customer")]
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<PageTitle>Media Box | LiveStudio</PageTitle>
+
+<header class="topbar studio-topbar">
+    <div>
+        <div class="eyebrow">LIVESTUDIO / SHARED MEDIA ENGINE</div>
+        <h1>Media Box | جعبه رسانه</h1>
+        <p class="studio-subtitle">کتابخانه رسانه، پس‌زمینه‌ها، لوگوها و گرافیک‌های آماده برای هر دو استودیو</p>
+    </div>
+    <div class="top-actions">
+        <a class="btn btn-outline-secondary" href="/studio"><i class="bi bi-broadcast ms-1"></i>Live Studio</a>
+        <a class="btn btn-primary" href="/creator"><i class="bi bi-camera-reels ms-1"></i>Creator Studio</a>
+    </div>
+</header>
+
+@if (!string.IsNullOrWhiteSpace(Notice))
+{
+    <div class="notice @(IsError ? "notice-error" : "notice-success")">@Notice</div>
+}
+
+<div class="media-summary-grid">
+    <div class="media-summary"><i class="bi bi-images"></i><span>رسانه‌های من</span><strong>@Assets.Count</strong></div>
+    <div class="media-summary"><i class="bi bi-badge-hd"></i><span>پس‌زمینه‌ها</span><strong>@Assets.Count(x => x.Category is "image-bg" or "video-bg")</strong></div>
+    <div class="media-summary"><i class="bi bi-patch-check"></i><span>لوگوها</span><strong>@Assets.Count(x => x.Category == "logo") / @MaxLogos</strong></div>
+    <div class="media-summary"><i class="bi bi-collection-play"></i><span>گرافیک و وله</span><strong>@Assets.Count(x => x.Category is "overlay" or "stinger" or "audio")</strong></div>
+</div>
+
+<div class="media-layout">
+    <section class="panel media-library-panel">
+        <div class="panel-heading">
+            <div><div class="eyebrow">ASSET LIBRARY</div><h3>کتابخانه رسانه</h3></div>
+            <span class="count-pill">ذخیره محلی در مرورگر</span>
+        </div>
+        <div class="media-tabs" role="tablist">
+            @foreach (var tab in Tabs)
+            {
+                <button class="media-tab @(ActiveTab == tab.Key ? "active" : "")" @onclick="() => SelectTab(tab.Key)">
+                    <i class="bi @tab.Icon"></i><span>@tab.Label</span>
+                </button>
+            }
+        </div>
+        <div class="media-upload-strip">
+            <div>
+                <strong>@ActiveTabLabel</strong>
+                <small>@ActiveTabDescription</small>
+            </div>
+            <label class="btn btn-primary btn-sm media-upload-button">
+                <i class="bi bi-cloud-arrow-up ms-1"></i>افزودن فایل
+                <InputFile OnChange="UploadAsync" accept="@AcceptForTab" multiple="false" />
+            </label>
+        </div>
+        @if (Loading)
+        {
+            <div class="empty-state"><div class="spinner-border spinner-border-sm"></div><p>در حال بارگذاری کتابخانه...</p></div>
+        }
+        else if (!FilteredAssets.Any())
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="bi @ActiveTabIcon"></i></div>
+                <strong>هنوز فایلی در این بخش ندارید</strong>
+                <p>برای شروع، فایل خود را اضافه کنید. رسانه‌ها روی همین مرورگر ذخیره می‌شوند و به سرور ارسال نمی‌شوند.</p>
+            </div>
+        }
+        else
+        {
+            <div class="media-asset-grid">
+                @foreach (var asset in FilteredAssets)
+                {
+                    <article class="media-asset-card @(SelectedAssetId == asset.Id ? "selected" : "")" @key="asset.Id">
+                        <button class="media-asset-preview" @onclick="() => SelectAsset(asset)">
+                            @if (asset.MimeType.StartsWith("image/"))
+                            {
+                                <img src="@asset.Url" alt="@asset.Name" />
+                            }
+                            else if (asset.MimeType.StartsWith("video/"))
+                            {
+                                <video src="@asset.Url" muted playsinline></video>
+                                <span class="asset-play"><i class="bi bi-play-fill"></i></span>
+                            }
+                            else
+                            {
+                                <span class="asset-file-icon"><i class="bi @(asset.MimeType.StartsWith("audio/") ? "bi-music-note-beamed" : "bi-file-earmark")"></i></span>
+                            }
+                        </button>
+                        <div class="media-asset-meta"><strong title="@asset.Name">@asset.Name</strong><small>@FormatSize(asset.Size)</small></div>
+                        @if (asset.MimeType.StartsWith("audio/")) { <audio class="media-audio-preview" src="@asset.Url" controls preload="none"></audio> }
+                        <div class="media-asset-actions">
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => SelectAsset(asset)">انتخاب</button>
+                            <button class="btn btn-outline-danger btn-sm" title="حذف" @onclick="() => DeleteAsync(asset)"><i class="bi bi-trash"></i></button>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+        <div class="media-library-footnote"><i class="bi bi-info-circle ms-1"></i>نسخه فعلی کتابخانه روی همین دستگاه و مرورگر نگهداری می‌شود. اتصال به فروشگاه و همگام‌سازی حساب کاربری در مرحله فروشگاه اضافه خواهد شد.</div>
+    </section>
+
+    <aside class="media-editor-column">
+        <section class="panel">
+            <div class="panel-heading"><div><div class="eyebrow">LIVE COMPOSITION</div><h3>پیش‌نمایش گرافیک</h3></div><span class="status-pill">16:9</span></div>
+            <div class="media-stage" style="@StageBackgroundStyle">
+                @if (SelectedBackground is not null && SelectedBackground.MimeType.StartsWith("video/")) { <video class="media-stage-video" src="@SelectedBackground.Url" autoplay muted loop playsinline></video> }
+                @if (SelectedOverlay is not null)
+                { <img class="media-stage-overlay" src="@SelectedOverlay.Url" alt="Overlay preview" /> }
+                @if (SelectedLogo is not null)
+                {
+                    <img class="media-stage-logo @LogoAnimationClass" src="@SelectedLogo.Url" alt="Logo preview" style="@LogoStyle" />
+                }
+                @if (ShowLowerThird)
+                {
+                    <div class="media-lower-third"><strong>@LowerThirdTitle</strong><span>@LowerThirdSubtitle</span></div>
+                }
+                @if (ShowBreaking)
+                {
+                    <div class="media-breaking"><b>BREAKING NEWS</b><span>@BreakingText</span><time>@DateTime.Now.ToString("HH:mm")</time></div>
+                }
+                <div class="media-stage-clock">@DateTime.Now.ToString("HH:mm")</div>
+                <div class="media-stage-watermark">پیش‌نمایش طراحی صحنه</div>
+            </div>
+            <div class="form-text mt-2">این پیش‌نمایش برای طراحی گرافیک است؛ اتصال خروجی نهایی به تصویر زنده و فایل ضبط در مرحله ترکیب صحنه انجام می‌شود.</div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-heading"><div><div class="eyebrow">LOGO DESIGNER</div><h3>تنظیم لوگو</h3></div><i class="bi bi-badge-tm"></i></div>
+            <label class="form-label">لوگوی انتخابی</label>
+            <select class="form-select mb-3" value="@SelectedLogoId" @onchange="LogoChanged">
+                <option value="">بدون لوگو</option>
+                @foreach (var logo in Assets.Where(x => x.Category == "logo")) { <option value="@logo.Id">@logo.Name</option> }
+            </select>
+            <div class="media-range-row"><label>موقعیت افقی</label><strong>@LogoX%</strong></div>
+            <input class="form-range" type="range" min="0" max="90" @bind="LogoX" />
+            <div class="media-range-row"><label>موقعیت عمودی</label><strong>@LogoY%</strong></div>
+            <input class="form-range" type="range" min="0" max="85" @bind="LogoY" />
+            <div class="media-range-row"><label>اندازه لوگو</label><strong>@LogoSize%</strong></div>
+            <input class="form-range" type="range" min="5" max="35" @bind="LogoSize" />
+            <label class="form-label mt-2">انیمیشن لوگو</label>
+            <select class="form-select" @bind="LogoAnimation">
+                <option value="none">بدون انیمیشن</option><option value="float">شناور</option><option value="pulse">ضربان</option><option value="rotate">چرخش آرام</option><option value="glow">درخشش</option>
+            </select>
+        </section>
+
+        <section class="panel">
+            <div class="panel-heading"><div><div class="eyebrow">BROADCAST GRAPHICS</div><h3>گرافیک خبری و زیرنویس</h3></div><i class="bi bi-badge-cc"></i></div>
+            <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="lowerThirdToggle" @bind="ShowLowerThird" /><label class="form-check-label" for="lowerThirdToggle">نمایش زیرنویس (Lower Third)</label></div>
+            <input class="form-control mb-2" @bind="LowerThirdTitle" placeholder="عنوان اصلی، مثلاً نام مهمان" />
+            <input class="form-control mb-3" @bind="LowerThirdSubtitle" placeholder="توضیح یا سمت مهمان" />
+            <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="breakingToggle" @bind="ShowBreaking" /><label class="form-check-label" for="breakingToggle">نمایش نوار خبر فوری</label></div>
+            <input class="form-control" @bind="BreakingText" placeholder="متن خبر فوری یا تیتر متحرک" />
+            <button class="btn btn-primary w-100 mt-3" @onclick="SaveDesignAsync" disabled="@Saving"><i class="bi bi-save ms-1"></i>ذخیره طراحی مشترک استودیوها</button>
+            @if (DesignSaved) { <div class="form-text text-success mt-2">تنظیمات طراحی در این مرورگر ذخیره شد.</div> }
+        </section>
+    </aside>
+</div>
+
+@code {
+    private const int MaxLogos = 5;
+    private const long MaxImageBytes = 20 * 1024 * 1024;
+    private const long MaxVideoBytes = 100 * 1024 * 1024;
+    private const long MaxAudioBytes = 30 * 1024 * 1024;
+    private bool Loading = true, IsError, Saving, DesignSaved;
+    private string? Notice, SelectedAssetId, SelectedLogoId;
+    private string ActiveTab = "overlay";
+    private int LogoX = 4, LogoY = 5, LogoSize = 16;
+    private string LogoAnimation = "none";
+    private bool ShowLowerThird = true, ShowBreaking;
+    private string LowerThirdTitle = "نام برنامه یا مهمان";
+    private string LowerThirdSubtitle = "عنوان و توضیح کوتاه";
+    private string BreakingText = "آخرین خبرها را اینجا وارد کنید";
+    private new List<MediaAsset> Assets = [];
+
+    private static readonly (string Key, string Label, string Icon)[] Tabs = [
+        ("overlay", "تصاویر شفاف", "bi-layers"), ("video-bg", "ویدئو بک‌گراند", "bi-film"),
+        ("image-bg", "تصویر بک‌گراند", "bi-image"), ("logo", "لوگوهای من", "bi-patch-check"),
+        ("stinger", "وله و آنونس", "bi-play-btn"), ("audio", "افکت صوتی", "bi-soundwave")
+    ];
+    private IEnumerable<MediaAsset> FilteredAssets => Assets.Where(x => x.Category == ActiveTab).OrderByDescending(x => x.CreatedAt);
+    private string ActiveTabLabel => Tabs.First(x => x.Key == ActiveTab).Label;
+    private string ActiveTabIcon => Tabs.First(x => x.Key == ActiveTab).Icon;
+    private string ActiveTabDescription => ActiveTab switch {
+        "overlay" => "PNG و WebP شفاف برای قاب‌ها، دکور، آیکون و عناصر روی تصویر",
+        "video-bg" => "ویدئوهای حلقه‌ای برای پس‌زمینه استودیو و صحنه‌های مجازی",
+        "image-bg" => "تصاویر ثابت برای دکور استودیو، کلاس، اتاق خبر و پادکست",
+        "logo" => $"حداکثر {MaxLogos} لوگو برای هر فضای کاری در نسخه فعلی",
+        "stinger" => "وله، تیزر کوتاه، Intro و Outro ویدیویی",
+        _ => "افکت‌ها و صداهای کوتاه برای انتقال و تأکید در برنامه"
+    };
+    private string AcceptForTab => ActiveTab switch {
+        "overlay" or "logo" => "image/png,image/webp,image/jpeg,image/svg+xml",
+        "image-bg" => "image/*", "video-bg" or "stinger" => "video/mp4,video/webm,video/quicktime",
+        "audio" => "audio/*", _ => "*/*"
+    };
+    private MediaAsset? SelectedLogo => Assets.FirstOrDefault(x => x.Id == SelectedLogoId);
+    private MediaAsset? SelectedBackground => Assets.FirstOrDefault(x => x.Id == SelectedAssetId && (x.Category == "image-bg" || x.Category == "video-bg"));
+    private MediaAsset? SelectedOverlay => Assets.FirstOrDefault(x => x.Id == SelectedAssetId && x.Category == "overlay");
+    private string LogoAnimationClass => LogoAnimation switch { "float" => "logo-float", "pulse" => "logo-pulse", "rotate" => "logo-rotate", "glow" => "logo-glow", _ => "" };
+    private string LogoStyle => $"left:{LogoX}%;top:{LogoY}%;width:{LogoSize}%;";
+    private string StageBackgroundStyle {
+        get {
+            var bg = SelectedBackground;
+            return bg is not null && bg.MimeType.StartsWith("image/") ? $"background-image:linear-gradient(#07101a55,#07101a55),url('{bg.Url}');background-size:cover;background-position:center;" : "background:radial-gradient(circle at 70% 30%,#40547c,#142137 55%,#080e18);";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (!firstRender) return;
+        try {
+            Assets = await JS.InvokeAsync<List<MediaAsset>>("mediaBox.list");
+            var saved = await JS.InvokeAsync<DesignConfig?>("mediaBox.getDesign");
+            if (saved is not null) {
+                SelectedAssetId = saved.BackgroundId; SelectedLogoId = saved.LogoId;
+                LogoX = saved.LogoX; LogoY = saved.LogoY; LogoSize = saved.LogoSize; LogoAnimation = saved.LogoAnimation;
+                ShowLowerThird = saved.ShowLowerThird; LowerThirdTitle = saved.LowerThirdTitle; LowerThirdSubtitle = saved.LowerThirdSubtitle;
+                ShowBreaking = saved.ShowBreaking; BreakingText = saved.BreakingText;
+            } else {
+                SelectedAssetId = Assets.FirstOrDefault(x => x.Category == "image-bg")?.Id;
+                SelectedLogoId = Assets.FirstOrDefault(x => x.Category == "logo")?.Id;
+            }
+            await JS.InvokeVoidAsync("mediaBox.startClock");
+        }
+        catch { Notice = "کتابخانه رسانه در دسترس نیست؛ صفحه را تازه‌سازی کنید."; IsError = true; }
+        finally { Loading = false; StateHasChanged(); }
+    }
+    private void SelectTab(string key) { ActiveTab = key; SelectedAssetId = null; Notice = null; }
+    private void SelectAsset(MediaAsset asset) {
+        SelectedAssetId = asset.Id;
+        if (asset.Category == "logo") SelectedLogoId = asset.Id;
+        if (asset.Category == "image-bg" || asset.Category == "video-bg") Notice = "پس‌زمینه برای پیش‌نمایش انتخاب شد.";
+        else Notice = $"{asset.Name} انتخاب شد.";
+        IsError = false;
+    }
+    private void LogoChanged(ChangeEventArgs e) => SelectedLogoId = e.Value?.ToString();
+
+    private async Task UploadAsync(InputFileChangeEventArgs e) {
+        Notice = null; IsError = false;
+        var file = e.File;
+        if (ActiveTab == "logo" && Assets.Count(x => x.Category == "logo") >= MaxLogos) { SetError($"حداکثر {MaxLogos} لوگو مجاز است. ابتدا یکی از لوگوهای قبلی را حذف کنید."); return; }
+        var max = ActiveTab is "video-bg" or "stinger" ? MaxVideoBytes : ActiveTab == "audio" ? MaxAudioBytes : MaxImageBytes;
+        if (file.Size <= 0 || file.Size > max) { SetError($"حجم فایل بیش از حد مجاز است. سقف این بخش {FormatSize(max)} است."); return; }
+        var valid = ActiveTab switch {
+            "overlay" or "logo" or "image-bg" => file.ContentType.StartsWith("image/"),
+            "video-bg" or "stinger" => file.ContentType.StartsWith("video/"),
+            "audio" => file.ContentType.StartsWith("audio/"), _ => false
+        };
+        if (!valid) { SetError("نوع فایل با تب انتخاب‌شده مطابقت ندارد."); return; }
+        try {
+            await using var stream = file.OpenReadStream(max);
+            using var streamRef = new DotNetStreamReference(stream);
+            var added = await JS.InvokeAsync<MediaAsset>("mediaBox.add", file.Name, file.ContentType, ActiveTab, file.Size, streamRef);
+            Assets.Insert(0, added);
+            SelectedAssetId = added.Id;
+            if (ActiveTab == "logo") SelectedLogoId = added.Id;
+            Notice = ActiveTab is "video-bg" or "stinger" ? "ویدئو ذخیره شد (Google Drive در صورت اتصال، وگرنه حافظه‌ی همین مرورگر)." : "فایل روی سرور ذخیره شد.";
+        }
+        catch (Exception ex) { SetError($"ذخیره فایل انجام نشد: {ex.Message}"); }
+    }
+    private async Task DeleteAsync(MediaAsset asset) {
+        try {
+            await JS.InvokeVoidAsync("mediaBox.remove", asset.Id);
+            Assets.RemoveAll(x => x.Id == asset.Id);
+            if (SelectedAssetId == asset.Id) SelectedAssetId = null;
+            if (SelectedLogoId == asset.Id) SelectedLogoId = null;
+            Notice = "فایل حذف شد."; IsError = false;
+        } catch (Exception ex) { SetError($"حذف فایل انجام نشد: {ex.Message}"); }
+    }
+    private async Task SaveDesignAsync() {
+        Saving = true; DesignSaved = false;
+        try {
+            var config = new DesignConfig(SelectedBackground?.Id, SelectedLogoId, LogoX, LogoY, LogoSize, LogoAnimation, ShowLowerThird, LowerThirdTitle, LowerThirdSubtitle, ShowBreaking, BreakingText);
+            await JS.InvokeVoidAsync("mediaBox.saveDesign", config);
+            await JS.InvokeVoidAsync("mediaBox.attachPreviews");
+            DesignSaved = true; Notice = "طراحی مشترک ذخیره شد و در دسترس هر دو استودیو قرار گرفت."; IsError = false;
+        } catch (Exception ex) { SetError($"ذخیره طراحی انجام نشد: {ex.Message}"); }
+        finally { Saving = false; }
+    }
+    private void SetError(string message) { Notice = message; IsError = true; }
+    private static string FormatSize(long bytes) => bytes >= 1024 * 1024 ? $"{bytes / 1024d / 1024d:0.#} MB" : $"{Math.Max(1, bytes / 1024)} KB";
+    public async ValueTask DisposeAsync() { try { await JS.InvokeVoidAsync("mediaBox.releaseUrls"); } catch (JSDisconnectedException) { } catch (InvalidOperationException) { } }
+    public sealed record MediaAsset(string Id, string Name, string MimeType, string Category, long Size, string Url, DateTime CreatedAt);
+    private sealed record DesignConfig(string? BackgroundId, string? LogoId, int LogoX, int LogoY, int LogoSize, string LogoAnimation, bool ShowLowerThird, string LowerThirdTitle, string LowerThirdSubtitle, bool ShowBreaking, string BreakingText);
+}

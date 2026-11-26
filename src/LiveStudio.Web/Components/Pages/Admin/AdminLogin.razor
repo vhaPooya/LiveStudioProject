@@ -1,0 +1,55 @@
+@page "/admin/login"
+@layout AuthLayout
+@attribute [AllowAnonymous]
+@inject IAuthService Auth
+@inject ClientInfo Client
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>ورود مدیران | LiveStudio</PageTitle>
+
+<div class="auth-card">
+    <div class="admin-login-badge"><i class="bi bi-shield-lock-fill"></i></div>
+    <h1>ورود به پنل مدیریت</h1>
+    <p class="auth-sub">فقط برای مدیران و کاربران مدیریتی سامانه.</p>
+    <Notice Error="@_error" />
+    <form @onsubmit="LoginAsync" @onsubmit:preventDefault>
+        <div class="mb-3"><label class="form-label" for="u">نام کاربری</label>
+            <input id="u" class="form-control ltr-input" autocomplete="username" @bind="_username" @bind:event="oninput" /></div>
+        <div class="mb-4"><label class="form-label" for="p">رمز عبور</label>
+            <input id="p" class="form-control ltr-input" type="password" autocomplete="current-password" @bind="_password" @bind:event="oninput" /></div>
+        <button class="btn btn-primary w-100 btn-lg" type="submit" disabled="@(_busy || _username.Length == 0 || _password.Length == 0)">
+            @if (_busy) { <span class="spinner-border spinner-border-sm ms-2"></span> }<i class="bi bi-box-arrow-in-left ms-1"></i>ورود
+        </button>
+    </form>
+    <p class="auth-foot"><a href="/">بازگشت به وب‌سایت</a></p>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+    private string _username = string.Empty, _password = string.Empty;
+    private string? _error;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        if (state.User.IsInRole(Roles.Admin) || state.User.IsInRole(Roles.Staff)) Navigation.NavigateTo("/admin", replace: true);
+    }
+
+    private async Task LoginAsync()
+    {
+        _error = null; _busy = true;
+        try
+        {
+            var result = await Auth.AdminLoginAsync(_username, _password, Client.Ip, Client.UserAgent);
+            if (!result.Success || result.Value is null) { _error = result.Error; return; }
+            var redirect = await JS.InvokeAsync<string>("lsSite.signIn", result.Value);
+            var safe = !string.IsNullOrWhiteSpace(ReturnUrl) && ReturnUrl.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) && !ReturnUrl.StartsWith("//");
+            Navigation.NavigateTo(safe ? ReturnUrl! : redirect, forceLoad: true);
+        }
+        catch (JSException ex) { _error = ex.Message.Split('\n')[0]; }
+        finally { _busy = false; _password = string.Empty; }
+    }
+}

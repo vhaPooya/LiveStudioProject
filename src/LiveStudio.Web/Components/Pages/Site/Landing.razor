@@ -1,0 +1,331 @@
+@page "/"
+@layout SiteLayout
+@attribute [AllowAnonymous]
+@inject IContentService Content
+@inject ISubscriptionService Subscriptions
+@inject IJSRuntime JS
+
+<PageTitle>@_site.SiteName | استودیوی پخش زنده مستقل، بدون OBS</PageTitle>
+<HeadContent>
+    <meta name="description" content="@_site.HeroSubtitle" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="@_site.SiteName | استودیوی پخش زنده مستقل، بدون OBS" />
+    <meta property="og:description" content="@_site.HeroSubtitle" />
+    <meta property="og:image" content="/img/landing/og-image.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+</HeadContent>
+
+<!-- ============================ HERO ============================ -->
+<section class="hero">
+    <div class="hero-glow g1"></div><div class="hero-glow g2"></div><div class="hero-grid"></div>
+    <div class="site-container hero-inner">
+        <div class="hero-copy reveal">
+            <span class="hero-pill"><i class="bi bi-stars"></i>بدون OBS · بدون نصب · مستقیم از مرورگر</span>
+            <h1>@_site.HeroTitle</h1>
+            <p>@_site.HeroSubtitle</p>
+            <div class="hero-cta">
+                <a class="btn btn-primary btn-lg" href="/register"><i class="bi bi-rocket-takeoff ms-1"></i>شروع رایگان</a>
+                <a class="btn btn-ghost btn-lg" href="#showcase"><i class="bi bi-play-circle ms-1"></i>دیدن ابزارها</a>
+            </div>
+            <ul class="hero-trust">
+                <li><i class="bi bi-youtube"></i>پخش روی کانال یوتیوب خودتان</li>
+                <li><i class="bi bi-shield-check"></i>OAuth اختصاصی و رمزنگاری‌شده</li>
+                <li><i class="bi bi-gift"></i>دوره آزمایشی رایگان هنگام ثبت‌نام</li>
+            </ul>
+        </div>
+        <div class="hero-visual reveal d2">
+            <div class="hero-photo">
+                <img src="img/landing/hero-studio.webp" alt="فضای یک استودیوی پخش زنده با مانیتور، میکروفون، دوربین و نور حلقه‌ای" width="1100" height="860" fetchpriority="high" />
+                <span class="float-chip c1"><i class="bi bi-record-circle-fill live-dot"></i>LIVE</span>
+                <span class="float-chip c2"><i class="bi bi-youtube"></i>متصل به کانال یوتیوب شما</span>
+                <span class="float-chip c3"><i class="bi bi-lightning-charge-fill"></i>TAKE به Program</span>
+            </div>
+        </div>
+    </div>
+    <div class="site-container tech-strip reveal">
+        <span>ساخته‌شده با فناوری‌های استاندارد</span>
+        <b><i class="bi bi-camera-video"></i>WebRTC</b><b><i class="bi bi-hdd-network"></i>LiveKit</b><b><i class="bi bi-broadcast"></i>RTMP Egress</b><b><i class="bi bi-youtube"></i>YouTube Live API</b><b><i class="bi bi-filetype-js"></i>Canvas Compositor</b>
+    </div>
+</section>
+
+<!-- ============================ USE CASES ============================ -->
+<section class="section" id="usecases">
+    <div class="site-container">
+        <div class="section-head reveal"><span class="eyebrow-pill">برای چه کسانی؟</span><h2>از یک گفتگوی ساده تا یک همایش کامل</h2><p>هر نوع پخش زنده‌ای که فکرش را بکنید، با همین استودیو برگزار می‌شود.</p></div>
+        <div class="case-grid">
+            @foreach (var (c, i) in UseCases.Select((c, i) => (c, i)))
+            {
+                <article class="case-card reveal d@(i % 4)">
+                    <div class="case-img"><img src="img/landing/@c.Image" alt="@c.Alt" loading="lazy" width="800" height="533" /></div>
+                    <div class="case-body"><h3>@c.Title</h3><p>@c.Text</p><div class="case-tags">@foreach (var t in c.Tags) { <span>@t</span> }</div></div>
+                </article>
+            }
+        </div>
+    </div>
+</section>
+
+<!-- ============================ STUDIO TOUR ============================ -->
+<section class="section section-alt tour-section" id="studio-tour">
+    <div class="tour-bg"></div>
+    <div class="site-container">
+        <div class="section-head reveal"><span class="eyebrow-pill">نگاهی به استودیو</span><h2>همهٔ کنترل‌ها در یک صفحه</h2><p>صحنه، لایه‌ها، رنگ، صدا و خروجی زنده؛ بدون پنجره‌های پراکنده.</p></div>
+        <div class="tour-frame reveal">
+            <img src="img/landing/ui-studio.svg" alt="نمایی از رابط استودیو: مانیتور Preview و Program، دکمه TAKE، لایه‌ها و میکسر صدا" loading="lazy" width="1400" height="860" />
+            <span class="hot" style="left:31%;top:17%">1</span>
+            <span class="hot" style="left:50%;top:17%">2</span>
+            <span class="hot" style="left:29%;top:56%">3</span>
+            <span class="hot" style="left:92%;top:44%">4</span>
+        </div>
+        <div class="tour-legend reveal">
+            @foreach (var (t, i) in Tour.Select((t, i) => (t, i)))
+            {
+                <div><b>@(i + 1)</b><div><strong>@t.Title</strong><p>@t.Text</p></div></div>
+            }
+        </div>
+    </div>
+</section>
+
+<!-- ============================ FEATURES ============================ -->
+<section class="section" id="features">
+    <div class="site-container">
+        <div class="section-head reveal"><span class="eyebrow-pill">امکانات</span><h2>هر آنچه برای یک پخش زنده حرفه‌ای لازم دارید</h2><p>از ترکیب تصویر و صدا تا ارسال به یوتیوب؛ همه در یک استودیوی ساده و فارسی.</p></div>
+        <div class="feature-grid">
+            @foreach (var (f, i) in Features.Select((f, i) => (f, i)))
+            {
+                <article class="feature-card reveal d@(i % 3)">
+                    <span class="feature-icon @f.Tone"><i class="bi @f.Icon"></i></span>
+                    <h3>@f.Title</h3>
+                    <p>@f.Text</p>
+                </article>
+            }
+        </div>
+    </div>
+</section>
+
+<!-- ============================ HOW IT WORKS ============================ -->
+<section class="section section-alt" id="how">
+    <div class="site-container">
+        <div class="section-head reveal"><span class="eyebrow-pill">نحوه کار</span><h2>در چهار قدم روی یوتیوب زنده شوید</h2><p>راه‌اندازی اولیه فقط یک‌بار انجام می‌شود؛ ویدئوی آموزشی داخل پنل شما را همراهی می‌کند.</p></div>
+        <div class="steps">
+            @foreach (var (s, i) in Steps.Select((s, i) => (s, i)))
+            {
+                <div class="step reveal d@(i % 4)"><span class="step-no">@(i + 1)</span><div class="step-icon"><i class="bi @s.Icon"></i></div><h4>@s.Title</h4><p>@s.Text</p></div>
+            }
+        </div>
+    </div>
+</section>
+
+<!-- ============================ SHOWCASE ============================ -->
+<section class="section" id="showcase">
+    <div class="site-container">
+        <div class="section-head reveal"><span class="eyebrow-pill">ابزارهای استودیو</span><h2>ابزارهایی که واقعاً روی تصویر و خروجی شما اثر می‌گذارند</h2><p>هر تنظیم روی Preview، Program و فایل ضبط‌شده اعمال می‌شود، نه فقط روی نمایش.</p></div>
+
+        <div class="show-row reveal">
+            <div class="show-copy">
+                <span class="show-tag"><i class="bi bi-arrow-left-right"></i>Preview / Program</span>
+                <h3>اول آماده کنید، بعد با «TAKE» روی آنتن ببرید</h3>
+                <p>تغییرات را روی مانیتور Preview بچینید؛ فقط وقتی TAKE بزنید (یا «TAKE خودکار» را روشن کنید) به خروجی زنده می‌رود. بیننده‌ها هیچ‌وقت آماده‌سازی شما را نمی‌بینند.</p>
+                <ul class="check-list"><li>لایه‌ها، لوگو، پس‌زمینه تصویری یا ویدئویی</li><li>قاب خالی برای لوگو و ویدئو</li><li>هشدار هوشمند: «تغییرات هنوز به Program نرسیده»</li></ul>
+            </div>
+            <div class="show-visual"><div class="vis-take">
+                <div class="vis-mon"><label>PREVIEW</label><div class="vis-screen s1"></div></div>
+                <div class="vis-btn"><i class="bi bi-lightning-charge-fill"></i>TAKE</div>
+                <div class="vis-mon live"><label>PROGRAM · LIVE</label><div class="vis-screen s2"></div></div>
+            </div></div>
+        </div>
+
+        <div class="show-row flip reveal">
+            <div class="show-copy">
+                <span class="show-tag"><i class="bi bi-card-text"></i>تله‌پرومپتر</span>
+                <h3>متن را بخوانید، نه اینکه از رویش بخوانید</h3>
+                <p>تله‌پرومپتر شناور روی مانیتور با سرعت، اندازه، تیرگی و حالت آینه‌ای قابل تنظیم. متن شما ذخیره می‌شود و در خروجی پخش یا ضبط دیده نمی‌شود.</p>
+                <ul class="check-list"><li>شروع/توقف با Space، سرعت با ↑ و ↓</li><li>بازگشت به ابتدای متن با Home</li><li>محل نمایش و حالت آینه‌ای برای تله‌پرومپتر فیزیکی</li></ul>
+            </div>
+            <div class="show-visual"><div class="vis-prompter"><div class="pr-head"><i class="bi bi-eyeglasses"></i>تله‌پرومپتر<span>سرعت ۳</span></div>
+                <p class="dim">سلام و درود بر همراهان همیشگی ما،</p><p class="cur">امشب درباره‌ی ساخت اولین پخش زنده‌ی حرفه‌ای صحبت می‌کنیم</p><p>و قدم‌به‌قدم نشان می‌دهیم چطور تصویر شما بهتر دیده شود…</p><div class="pr-line"></div></div></div>
+        </div>
+
+        <div class="show-row reveal">
+            <div class="show-copy">
+                <span class="show-tag"><i class="bi bi-brightness-high"></i>اصلاح رنگ و نور</span>
+                <h3>تصویر دوربین ارزان را هم قابل‌اعتماد کنید</h3>
+                <p>روشنایی، کنتراست، اشباع، نوردهی و فام رنگ را زنده تنظیم کنید و با دکمه مقایسه، تصویر اصلی را کنار نتیجه ببینید. پیش‌تنظیم‌ها کار را یک‌کلیکی می‌کنند.</p>
+                <ul class="check-list"><li>اعمال فوری روی Preview، Program و ضبط</li><li>پیش‌تنظیم‌های آماده و بازنشانی سریع</li><li>تنظیمات با بستن پنل حفظ می‌شود</li></ul>
+            </div>
+            <div class="show-visual"><div class="vis-color">
+                @foreach (var (name, val) in new[] { ("روشنایی", 62), ("کنتراست", 48), ("اشباع", 72), ("نوردهی", 55), ("فام رنگ", 40) })
+                {
+                    <div class="slider-row"><span>@name</span><div class="slider"><i style="width:@(val)%"></i><b style="right:@(val)%"></b></div></div>
+                }
+                <div class="color-presets"><span>گرم</span><span class="on">سینمایی</span><span>سرد</span><span>روشن</span></div></div></div>
+        </div>
+
+        <div class="show-row flip reveal">
+            <div class="show-copy">
+                <span class="show-tag"><i class="bi bi-sliders2"></i>میکسر صدا</span>
+                <h3>صدایی که بیننده را نمی‌رماند</h3>
+                <p>میکسر صدای حرفه‌ای برای میکروفون و منابع صوتی؛ همراه با Media Box برای نگه‌داشتن لوگو، موسیقی، استینگر و ویدئوهای آماده در مرورگر.</p>
+                <ul class="check-list"><li>سطح صدا و پایش زنده</li><li>Media Box با تصویر بندانگشتی</li><li>ضبط ویدئو در استودیوی تولید محتوا</li></ul>
+            </div>
+            <div class="show-visual"><div class="vis-mixer">
+                @foreach (var (name, h) in new[] { ("میکروفون", 76), ("موسیقی", 44), ("افکت", 58), ("اصلی", 84) })
+                {
+                    <div class="fader"><div class="fader-track"><i style="height:@(h)%"></i><b style="bottom:@(h)%"></b></div><span>@name</span></div>
+                }
+            </div></div>
+        </div>
+    </div>
+</section>
+
+<!-- ============================ COMPARE ============================ -->
+<section class="section section-alt">
+    <div class="site-container">
+        <div class="section-head reveal"><span class="eyebrow-pill">چرا LiveStudio؟</span><h2>راه‌اندازی ساده‌تر، ابزار کمتر، تمرکز بیشتر</h2></div>
+        <div class="compare reveal">
+            <div class="compare-head"><span></span><b class="us">LiveStudio</b><b>روش سنتی</b></div>
+            @foreach (var row in Compare)
+            {
+                <div class="compare-row"><span>@row.Label</span><b class="us"><i class="bi bi-check-circle-fill"></i>@row.Us</b><b><i class="bi bi-dash-circle"></i>@row.Other</b></div>
+            }
+        </div>
+    </div>
+</section>
+
+<!-- ============================ PRICING ============================ -->
+<section class="section" id="pricing">
+    <div class="site-container">
+        <div class="section-head reveal"><span class="eyebrow-pill">تعرفه‌ها</span><h2>طرحی متناسب با اندازه‌ی پخش شما</h2><p>پرداخت آنلاین امن و فعال‌سازی فوری. در هر زمان می‌توانید تمدید یا ارتقا دهید.</p></div>
+        @if (_hasYearly && _hasMonthly)
+        {
+            <div class="price-toggle reveal"><button class="@(!_yearly ? "on" : "")" @onclick="() => _yearly = false">ماهانه</button><button class="@(_yearly ? "on" : "")" @onclick="() => _yearly = true">سالانه <em>۲ ماه رایگان</em></button></div>
+        }
+        <div class="price-grid">
+            @foreach (var (p, i) in VisiblePlans.Select((p, i) => (p, i)))
+            {
+                <article class="price-card @(p.IsPopular ? "popular" : "") reveal d@(i % 3)">
+                    @if (!string.IsNullOrWhiteSpace(p.BadgeText)) { <span class="price-badge">@p.BadgeText</span> }
+                    <h3>@p.Name</h3>
+                    <p class="price-tag">@p.Tagline</p>
+                    <div class="price-amount">
+                        @if (p.OldPrice is > 0) { <s>@Fa.Num(p.OldPrice.Value)</s> }
+                        <strong>@Fa.Num(p.Price)</strong><span>تومان / @Fa.Duration(p.DurationDays)</span>
+                    </div>
+                    <ul class="price-features">
+                        @foreach (var line in p.FeaturesText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) { <li><i class="bi bi-check2"></i>@line</li> }
+                    </ul>
+                    <AuthorizeView Policy="Customer">
+                        <Authorized><a class="btn @(p.IsPopular ? "btn-primary" : "btn-outline-secondary") w-100" href="/panel/subscription?plan=@p.Id">انتخاب طرح</a></Authorized>
+                        <NotAuthorized><a class="btn @(p.IsPopular ? "btn-primary" : "btn-outline-secondary") w-100" href="/register">شروع با این طرح</a></NotAuthorized>
+                    </AuthorizeView>
+                </article>
+            }
+            @if (!VisiblePlans.Any()) { <div class="empty-state" style="grid-column:1/-1"><strong>طرح فعالی تعریف نشده است.</strong></div> }
+        </div>
+        <p class="price-note reveal"><i class="bi bi-info-circle ms-1"></i>برای نیازهای سازمانی یا تعداد کاربر بیشتر، از داخل پنل تیکت ثبت کنید تا طرح اختصاصی بسازیم.</p>
+    </div>
+</section>
+
+<!-- ============================ FAQ ============================ -->
+<section class="section section-alt" id="faq">
+    <div class="site-container narrow">
+        <div class="section-head reveal"><span class="eyebrow-pill">سوالات متداول</span><h2>پاسخ پرسش‌های رایج</h2></div>
+        <div class="faq reveal">
+            @foreach (var item in _faq)
+            {
+                <details><summary>@item.Question<i class="bi bi-plus-lg"></i></summary><p>@item.Answer</p></details>
+            }
+        </div>
+    </div>
+</section>
+
+<!-- ============================ CTA ============================ -->
+<section class="section cta-section">
+    <div class="site-container">
+        <div class="cta-box reveal">
+            <div class="cta-glow"></div><img class="cta-art" src="img/landing/cta-studio.webp" alt="" aria-hidden="true" loading="lazy" />
+            <h2>اولین پخش زنده‌ی حرفه‌ای‌تان را امشب برگزار کنید</h2>
+            <p>ثبت‌نام کمتر از یک دقیقه طول می‌کشد و نیازی به رمز عبور یا نصب نرم‌افزار نیست.</p>
+            <a class="btn btn-light btn-lg" href="/register"><i class="bi bi-rocket-takeoff ms-1"></i>ساخت حساب رایگان</a>
+        </div>
+    </div>
+</section>
+
+@code {
+    private sealed record Feature(string Icon, string Tone, string Title, string Text);
+    private sealed record Step(string Icon, string Title, string Text);
+    private sealed record UseCase(string Image, string Alt, string Title, string Text, string[] Tags);
+    private sealed record TourItem(string Title, string Text);
+
+    private static readonly UseCase[] UseCases =
+    [
+        new("case-youtube.webp", "استریمر پشت میز با هدفون و نور حلقه‌ای", "یوتیوبرها و استریمرها", "پخش زنده با لوگو، لایه‌ها و صحنه‌های آماده؛ بدون اینکه چند برنامه را کنار هم باز نگه دارید.", ["لوگو و قاب", "TAKE", "یوتیوب"]),
+        new("case-edu.webp", "مدرس کنار تخته‌ی سفید در کلاس آنلاین", "آموزش و کلاس آنلاین", "تله‌پرومپتر، اشتراک صفحه و ضبط جلسه‌ها؛ هر درس هم زنده پخش می‌شود هم آرشیو می‌ماند.", ["تله‌پرومپتر", "اشتراک صفحه", "ضبط"]),
+        new("case-event.webp", "سخنران روی صحنه‌ی همایش با نورهای رنگی", "رویدادها و همایش‌ها", "چند دوربین و صحنه‌ی از پیش‌چیده، زیرنویس و لوگوی اسپانسر؛ مدیریت برنامه‌ی زنده روی آنتن.", ["چند صحنه", "زیرنویس", "اسپانسر"]),
+        new("case-podcast.webp", "دو مهمان پشت میکروفون در استودیوی پادکست", "پادکست و گفتگو", "میکسر صدای حرفه‌ای و اصلاح تصویر دوربین برای گفتگوهای طولانی و مصاحبه‌های زنده.", ["میکسر صدا", "اصلاح رنگ", "مصاحبه"])
+    ];
+
+    private static readonly TourItem[] Tour =
+    [
+        new("مانیتور Preview", "صحنه را آماده کنید، بدون اینکه بیننده تغییرات را ببیند."),
+        new("دکمه TAKE", "با یک کلیک (یا TAKE خودکار) تغییرات را روی آنتن ببرید."),
+        new("لایه‌ها و رسانه", "لوگو، تصویر، ویدئو و پس‌زمینه را مرتب و تنظیم کنید."),
+        new("رنگ و میکسر صدا", "تصویر دوربین و سطح صدا را زنده اصلاح کنید.")
+    ];
+    private sealed record CompareRow(string Label, string Us, string Other);
+
+    private static readonly Feature[] Features =
+    [
+        new("bi-browser-chrome", "t-violet", "استودیوی کامل داخل مرورگر", "دوربین، میکروفون، اشتراک صفحه و صحنه‌ها بدون نصب هیچ برنامه‌ای؛ همراه شما در هر رایانه."),
+        new("bi-arrow-left-right", "t-blue", "Preview و Program با TAKE", "اول آماده کنید، بعد روی آنتن ببرید. TAKE دستی یا خودکار برای انتقال امن تغییرات."),
+        new("bi-youtube", "t-red", "پخش مستقیم روی یوتیوب", "ارسال خروجی به رویداد یوتیوب شما از طریق LiveKit Egress؛ Stream Key هرگز به مرورگر نمی‌رسد."),
+        new("bi-layers", "t-teal", "Compositor لایه‌ای", "لوگو، تصویر و ویدئو، پس‌زمینه ثابت یا متحرک، قاب‌های خالی و تنظیم شفافیت و نحوه نمایش."),
+        new("bi-card-text", "t-amber", "تله‌پرومپتر هوشمند", "تله‌پرومپتر شناور و ذخیره‌شده، با کنترل کامل با کیبورد و بدون نمایش در خروجی."),
+        new("bi-brightness-high", "t-pink", "اصلاح رنگ و نور زنده", "روشنایی، کنتراست، اشباع، نوردهی و فام رنگ با پیش‌تنظیم و مقایسه با تصویر اصلی."),
+        new("bi-sliders2", "t-green", "میکسر صدای حرفه‌ای", "کنترل سطح منابع صوتی و پایش زنده برای صدایی تمیز و متعادل."),
+        new("bi-collection-play", "t-violet", "Media Box شخصی", "لوگو، موسیقی، ویدئو و پس‌زمینه‌ها در مرورگر شما نگه‌داری می‌شوند و با تصویر بندانگشتی انتخاب می‌شوند."),
+        new("bi-camera-reels", "t-blue", "استودیوی تولید محتوا", "ضبط ویدئو، پادکست، آموزش و مصاحبه با همان ابزارهای پخش زنده."),
+        new("bi-grid-3x3-gap", "t-teal", "مدیریت صحنه‌ها", "صحنه‌های از پیش‌ساخته برای مجری، مصاحبه، اشتراک صفحه و پایان برنامه."),
+        new("bi-shield-lock", "t-amber", "امنیت داده‌ها", "هر مشتری OAuth اختصاصی خودش را دارد؛ اطلاعات رمزنگاری و جدا از سایر کاربران نگهداری می‌شود."),
+        new("bi-life-preserver", "t-pink", "پشتیبانی و تیکت", "پنل کاربری، وضعیت اشتراک و گفتگوی پشتیبانی در یک‌جا؛ بدون پیگیری از کانال‌های پراکنده.")
+    ];
+
+    private static readonly Step[] Steps =
+    [
+        new("bi-phone", "ثبت‌نام با کد ملی و موبایل", "کد تأیید پیامکی دریافت کنید؛ حساب شما بلافاصله با دوره آزمایشی فعال می‌شود."),
+        new("bi-google", "اتصال کانال یوتیوب", "Client ID و Secret اختصاصی خود را طبق ویدئوی آموزشی ثبت کنید و دسترسی را در گوگل تأیید کنید."),
+        new("bi-camera-video", "ساخت رویداد و ورود به استودیو", "رویداد را بسازید، دوربین و میکروفون را انتخاب کنید و صحنه‌ها را آماده کنید."),
+        new("bi-broadcast", "TAKE و پخش زنده", "خروجی Program را فعال کنید و با یک کلیک به یوتیوب ارسال کنید.")
+    ];
+
+    private static readonly CompareRow[] Compare =
+    [
+        new("نصب نرم‌افزار", "نیازی نیست؛ فقط مرورگر", "نصب و به‌روزرسانی برنامه جداگانه"),
+        new("اتصال به یوتیوب", "OAuth و ساخت رویداد از داخل پنل", "کپی دستی Stream Key و تنظیم Encoder"),
+        new("آماده‌سازی قبل از آنتن", "Preview جدا و TAKE", "بسته به تنظیمات و افزونه‌ها"),
+        new("تله‌پرومپتر و اصلاح رنگ", "داخل خود استودیو", "ابزار یا افزونه‌ی جداگانه"),
+        new("امنیت Stream Key", "فقط در سرور؛ هرگز در مرورگر", "ذخیره در رایانه شخصی")
+    ];
+
+    private SiteContent _site = new();
+    private IReadOnlyList<FaqItem> _faq = [];
+    private IReadOnlyList<SubscriptionPlan> _plans = [];
+    private bool _yearly, _hasYearly, _hasMonthly;
+
+    private IEnumerable<SubscriptionPlan> VisiblePlans =>
+        _plans.Where(p => _hasYearly && _hasMonthly ? (p.DurationDays > 31) == _yearly : true);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _site = await Content.GetSiteContentAsync();
+        _faq = await Content.GetFaqAsync(true);
+        _plans = await Subscriptions.GetPlansAsync(true);
+        _hasYearly = _plans.Any(p => p.DurationDays > 31);
+        _hasMonthly = _plans.Any(p => p.DurationDays <= 31);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) { try { await JS.InvokeVoidAsync("lsSite.initReveal"); } catch (JSException) { } }
+        else { try { await JS.InvokeVoidAsync("lsSite.initReveal"); } catch (JSException) { } }
+    }
+}

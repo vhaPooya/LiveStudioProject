@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="..\LiveStudio.Domain\LiveStudio.Domain.csproj" /></ItemGroup></Project>

@@ -1,0 +1,200 @@
+@page "/panel"
+@attribute [Authorize(Policy = "Customer")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using System.Net.Http.Json
+@using System.Text.Json
+@inject TenantApi TenantApi
+@inject NavigationManager Navigation
+
+<PageTitle>داشبورد | LiveStudio</PageTitle>
+
+<header class="topbar">
+    <div><div class="eyebrow">LIVESTUDIO / CONTROL CENTER</div><h1>مرکز مدیریت پخش زنده</h1></div>
+    <div class="top-actions">
+        <span class="connection"><i class="bi bi-circle-fill" style="color:@(IsConnected ? "#37d6a0" : "#f4b860")"></i>@(IsConnected ? "یوتیوب متصل است" : "یوتیوب متصل نیست")</span>
+        <div class="avatar">LS</div>
+    </div>
+</header>
+
+<section class="welcome">
+    <div><div class="eyebrow">OVERVIEW</div><h2>داشبورد شما</h2><p>وضعیت کانال و رویدادها را مدیریت کنید و وارد استودیوی تصویری شوید.</p></div>
+    <button class="btn btn-outline-secondary" @onclick="RefreshAsync" disabled="@IsLoading"><i class="bi bi-arrow-clockwise ms-1"></i>بروزرسانی</button>
+</section>
+
+<section class="creator-launch-grid">
+    <a class="creator-launch-card live-launch" href="/studio">
+        <span class="creator-launch-icon"><i class="bi bi-broadcast-pin"></i></span>
+        <span class="creator-launch-copy"><small>LIVE BROADCAST</small><strong>استودیوی پخش زنده</strong><em>مدیریت دوربین، میکروفون و نشست‌های LiveKit و رویدادهای یوتیوب</em></span>
+        <i class="bi bi-arrow-left-circle launch-arrow"></i>
+    </a>
+    <a class="creator-launch-card record-launch" href="/creator">
+        <span class="creator-launch-icon"><i class="bi bi-camera-reels"></i></span>
+        <span class="creator-launch-copy"><small>VIDEO PRODUCTION</small><strong>استودیوی تولید محتوا</strong><em>ضبط ویدئو، پادکست، آموزش و مصاحبه با تله‌پرومپتر</em></span>
+        <i class="bi bi-arrow-left-circle launch-arrow"></i>
+    </a>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage)) { <div class="notice notice-error"><i class="bi bi-exclamation-triangle-fill ms-2"></i>@ErrorMessage</div> }
+@if (!string.IsNullOrWhiteSpace(SuccessMessage)) { <div class="notice notice-success"><i class="bi bi-check-circle-fill ms-2"></i>@SuccessMessage</div> }
+@if (IsLoading) { <div class="loading-panel"><span class="spinner-border spinner-border-sm ms-2"></span>در حال دریافت اطلاعات از سرور...</div> }
+@if (!string.IsNullOrWhiteSpace(CreatedBroadcastId)) { <div class="notice notice-success d-flex justify-content-between align-items-center flex-wrap gap-2"><span>رویداد ساخته شد؛ مرحله بعدی تنظیم دوربین و میکروفن است.</span><a class="btn btn-primary btn-sm" href="/studio/@CreatedBroadcastId">ورود به استودیو</a></div> }
+
+<section class="stats-grid" id="channel">
+    <article class="stat-card"><span class="stat-icon tone-purple"><i class="bi bi-link-45deg"></i></span><span class="label">وضعیت اتصال</span><strong>@(IsConnected ? "متصل" : "قطع")</strong><small>@(Connection?.ChannelTitle ?? "حساب یوتیوب")</small></article>
+    <article class="stat-card"><span class="stat-icon tone-blue"><i class="bi bi-play-btn"></i></span><span class="label">تعداد ویدیوها</span><strong>@FormatCount(Channel?.VideoCount)</strong><small>ویدیوهای کانال</small></article>
+    <article class="stat-card"><span class="stat-icon tone-green"><i class="bi bi-eye"></i></span><span class="label">بازدید کل کانال</span><strong>@FormatCount(Channel?.ViewCount)</strong><small>مجموع بازدیدها</small></article>
+    <article class="stat-card"><span class="stat-icon tone-amber"><i class="bi bi-people"></i></span><span class="label">مشترکین</span><strong>@(Channel?.IsSubscriberCountHidden == true ? "مخفی" : FormatCount(Channel?.SubscriberCount))</strong><small>تعداد مشترکین کانال</small></article>
+</section>
+
+<section class="content-grid">
+    <article class="panel" id="broadcasts">
+        <div class="panel-heading"><div><div class="eyebrow">YOUTUBE LIVE</div><h3>پخش‌های زنده</h3></div><span class="count-pill">@Broadcasts.Count رویداد</span></div>
+        @if (!IsConnected)
+        {
+            <div class="empty-state"><div class="empty-icon"><i class="bi bi-youtube"></i></div><strong>کانال یوتیوب متصل نیست</strong><p>برای مشاهده و مدیریت پخش‌ها ابتدا حساب خود را متصل کنید.</p><button class="btn btn-primary" @onclick="ConnectYouTube"><i class="bi bi-google ms-1"></i>اتصال حساب یوتیوب</button></div>
+        }
+        else if (Broadcasts.Count == 0)
+        {
+            <div class="empty-state"><div class="empty-icon"><i class="bi bi-camera-video"></i></div><strong>هنوز پخش زنده‌ای ندارید</strong><p>با فرم ایجاد رویداد، اولین پخش خود را بسازید.</p></div>
+        }
+        else
+        {
+            <div class="broadcast-list">
+                @foreach (var item in Broadcasts)
+                {
+                    <div class="broadcast-row">
+                        <div class="broadcast-symbol"><i class="bi bi-play-fill"></i></div>
+                        <div class="broadcast-info"><strong>@item.Title</strong><small>@FormatDate(item.ScheduledStartAt)</small></div>
+                        <span class="state-tag">@StatusLabel(item.Status)</span>
+                        @if (item.Status is not ("complete" or "revoked"))
+                        {
+                            <a class="btn btn-primary btn-sm" href="/studio/@item.Id"><i class="bi bi-camera-video ms-1"></i>ورود به استودیو</a>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </article>
+
+    <article class="panel">
+        <div class="panel-heading"><div><div class="eyebrow">QUICK ACTION</div><h3>ایجاد پخش زنده</h3></div><span class="count-pill">NEW EVENT</span></div>
+        @if (!IsConnected)
+        {
+            <p class="form-hint">برای ایجاد رویداد جدید ابتدا حساب یوتیوب را متصل کنید.</p>
+            <button class="btn btn-primary w-100" @onclick="ConnectYouTube">اتصال به یوتیوب</button>
+        }
+        else
+        {
+            <form @onsubmit="CreateBroadcastAsync" @onsubmit:preventDefault>
+                <div class="mb-3"><label class="form-label" for="title">عنوان پخش <span class="text-danger">*</span></label><input id="title" class="form-control" maxlength="100" required @bind="NewTitle" placeholder="عنوان پخش زنده را وارد کنید" /></div>
+                <div class="mb-3"><label class="form-label" for="description">توضیحات</label><textarea id="description" class="form-control" rows="3" maxlength="5000" @bind="NewDescription" placeholder="توضیحات اختیاری پخش..."></textarea></div>
+                <div class="mb-2"><label class="form-label" for="start">زمان شروع (اختیاری)</label><input id="start" class="form-control" type="datetime-local" @bind="ScheduledStart" /></div>
+                <div class="mb-3">
+                    <label class="form-label">پس از پایان لایو</label>
+                    <label class="ls-check-row"><input type="radio" name="archive" checked="@KeepArchive" @onchange="() => KeepArchive = true" /> ضبط لایو در یوتیوب بارگذاری و ذخیره شود</label>
+                    <label class="ls-check-row"><input type="radio" name="archive" checked="@(!KeepArchive)" @onchange="() => KeepArchive = false" /> ضبط در یوتیوب ذخیره نشود (پس از پایان کامل لایو حذف می‌شود)</label>
+                </div>
+                <div class="form-text mb-3">رویداد به‌صورت خصوصی ساخته می‌شود. در صورت خالی بودن، زمان شروع پنج دقیقه بعد خواهد بود.</div>
+                <button class="btn btn-primary w-100" type="submit" disabled="@IsCreating"><i class="bi bi-plus-lg ms-1"></i>@(IsCreating ? "در حال ایجاد..." : "ایجاد پخش زنده")</button>
+            </form>
+        }
+    </article>
+</section>
+
+@if (Channel is not null)
+{
+    <section class="panel channel-panel">
+        <div class="panel-heading"><div><div class="eyebrow">CONNECTED CHANNEL</div><h3>اطلاعات کانال</h3></div><span class="status-pill">CONNECTED</span></div>
+        <div class="channel-details">
+            @if (!string.IsNullOrWhiteSpace(Channel.ThumbnailUrl)) { <img class="channel-avatar" src="@Channel.ThumbnailUrl" alt="تصویر کانال" /> }
+            <div class="channel-title"><strong>@Channel.Title</strong><small>@(Channel.CustomUrl ?? Channel.ChannelId)</small></div>
+            <div class="channel-meta"><small>کشور</small><strong>@(Channel.Country ?? "—")</strong></div>
+            <div class="channel-meta"><small>تاریخ ایجاد</small><strong>@FormatDate(Channel.PublishedAt)</strong></div>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(Channel.Description)) { <p class="channel-description">@Channel.Description</p> }
+    </section>
+}
+
+@code {
+    private readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private YouTubeConnectionStatus? Connection;
+    private YouTubeChannelDetails? Channel;
+    private List<BroadcastSummary> Broadcasts = [];
+    private bool IsLoading, IsCreating;
+    private string? CreatedBroadcastId;
+    private string? ErrorMessage, SuccessMessage;
+    private string NewTitle = string.Empty, NewDescription = string.Empty;
+    private DateTime? ScheduledStart;
+    private bool KeepArchive = true;
+    private bool IsConnected => Connection?.IsConnected == true;
+    private HttpClient Api => TenantApi.Client;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        if (query.TryGetValue("youtube", out var result))
+        {
+            if (result == "connected") SuccessMessage = "حساب یوتیوب با موفقیت متصل شد.";
+            else if (result == "error") ErrorMessage = query.TryGetValue("message", out var message) ? message.ToString() : "اتصال یوتیوب ناموفق بود.";
+            Navigation.NavigateTo("/panel", replace: true);
+        }
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        IsLoading = true; ErrorMessage = null;
+        try
+        {
+            Connection = await Api.GetFromJsonAsync<YouTubeConnectionStatus>("/api/v1/youtube/connection", JsonOptions);
+            Channel = null; Broadcasts.Clear();
+            if (IsConnected)
+            {
+                Channel = await Api.GetFromJsonAsync<YouTubeChannelDetails>("/api/v1/youtube/channel", JsonOptions);
+                Broadcasts = await Api.GetFromJsonAsync<List<BroadcastSummary>>("/api/v1/youtube/broadcasts", JsonOptions) ?? [];
+            }
+        }
+        catch (Exception ex) { ErrorMessage = await ReadErrorAsync(ex); }
+        finally { IsLoading = false; }
+    }
+
+    private void ConnectYouTube() => Navigation.NavigateTo(Connection?.IsConfigured == true ? "/oauth/google/start" : "/panel/settings?tab=oauth", forceLoad: Connection?.IsConfigured == true);
+
+    private async Task CreateBroadcastAsync()
+    {
+        if (string.IsNullOrWhiteSpace(NewTitle)) { ErrorMessage = "عنوان پخش الزامی است."; return; }
+        IsCreating = true; ErrorMessage = null; SuccessMessage = null;
+        try
+        {
+            DateTimeOffset? startAt = ScheduledStart.HasValue ? new DateTimeOffset(DateTime.SpecifyKind(ScheduledStart.Value, DateTimeKind.Local)) : null;
+            var response = await Api.PostAsJsonAsync("/api/v1/youtube/broadcasts", new CreateBroadcastRequest(NewTitle.Trim(), string.IsNullOrWhiteSpace(NewDescription) ? null : NewDescription.Trim(), startAt, KeepArchive), JsonOptions);
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ExtractProblemAsync(response), null, response.StatusCode);
+            var created = await response.Content.ReadFromJsonAsync<BroadcastSummary>(JsonOptions);
+            CreatedBroadcastId = created?.Id;
+            var title = created?.Title ?? NewTitle;
+            NewTitle = NewDescription = string.Empty; ScheduledStart = null;
+            await RefreshAsync();
+            SuccessMessage = $"پخش «{title}» در یوتیوب ایجاد شد. برای تنظیم دوربین و میکروفن وارد استودیو شوید.";
+        }
+        catch (Exception ex) { ErrorMessage = await ReadErrorAsync(ex); }
+        finally { IsCreating = false; }
+    }
+
+
+    private static string FormatCount(long? value) => value?.ToString("N0", CultureInfo.InvariantCulture) ?? "—";
+    private static string FormatDate(DateTimeOffset? value) => value?.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.GetCultureInfo("fa-IR")) ?? "—";
+    private static string StatusLabel(string? value) => value?.ToLowerInvariant() switch { "live" => "در حال پخش", "complete" => "پایان‌یافته", "ready" => "آماده پخش", "testing" => "در حال آزمایش", "created" => "ایجادشده", "revoked" => "لغوشده", _ => value ?? "نامشخص" };
+    private static async Task<string> ExtractProblemAsync(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        try { using var doc = JsonDocument.Parse(body); if (doc.RootElement.TryGetProperty("detail", out var detail)) return detail.GetString() ?? body; } catch { }
+        return string.IsNullOrWhiteSpace(body) ? $"خطای سرور: {(int)response.StatusCode}" : body;
+    }
+    private static Task<string> ReadErrorAsync(Exception ex) => Task.FromResult(ex is HttpRequestException http && !string.IsNullOrWhiteSpace(http.Message) ? http.Message : ex.Message);
+    private sealed record YouTubeConnectionStatus(bool IsConfigured, bool IsConnected, string? ChannelTitle);
+    private sealed record YouTubeChannelDetails(string ChannelId, string Title, string? Description, string? CustomUrl, string? ThumbnailUrl, DateTimeOffset? PublishedAt, string? Country, long? SubscriberCount, bool IsSubscriberCountHidden, long? ViewCount, long? VideoCount);
+    private sealed record CreateBroadcastRequest(string Title, string? Description, DateTimeOffset? ScheduledStartAt, bool KeepArchive = true);
+    private sealed record BroadcastSummary(string Id, string Title, string Status, DateTimeOffset? ScheduledStartAt, string? StreamId = null);
+}

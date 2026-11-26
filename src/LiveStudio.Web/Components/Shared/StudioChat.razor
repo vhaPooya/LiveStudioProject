@@ -1,0 +1,165 @@
+@implements IAsyncDisposable
+@using System.Text.Json
+@inject IJSRuntime JS
+
+<div id="syChat" class="sy-chat @(Floating ? "floating" : "docked")">
+    <div class="sy-chat-head" data-float-handle>
+        <strong><i class="bi bi-chat-dots"></i> چت استودیو</strong>
+        <span>
+            <button type="button" title="@(Floating ? "قرار دادن در پنل" : "شناور کردن (قابل جابه‌جایی و تغییر اندازه)")" @onclick="ToggleFloatAsync"><i class="bi @(Floating ? "bi-box-arrow-in-down-left" : "bi-window-stack")"></i></button>
+        </span>
+    </div>
+    <div class="sy-chat-tabs">
+        <button type="button" class="@(Scope == "public" ? "active" : "")" @onclick='() => SetScope("public")'><i class="bi bi-people"></i> عمومی @if (PublicUnread > 0) { <em class="sy-badge">@PublicUnread</em> }</button>
+        <button type="button" class="@(Scope == "private" ? "active" : "")" @onclick='() => SetScope("private")'><i class="bi bi-lock"></i> خصوصی @if (PrivateUnread > 0) { <em class="sy-badge">@PrivateUnread</em> }</button>
+    </div>
+    @if (Scope == "private")
+    {
+        <div class="sy-chat-peer">
+            <select class="form-select form-select-sm" value="@Peer" @onchange="e => Peer = e.Value?.ToString() ?? string.Empty">
+                <option value="">انتخاب مهمان…</option>
+                @foreach (var p in People) { <option value="@p.Identity">@p.Name</option> }
+            </select>
+        </div>
+    }
+    <div id="syChatList" class="sy-chat-list">
+        @if (!IsConnected)
+        {
+            <div class="sy-chat-empty"><i class="bi bi-plug"></i><span>برای استفاده از چت ابتدا وارد استودیو شوید.</span></div>
+        }
+        else if (!Visible.Any())
+        {
+            <div class="sy-chat-empty">
+                <i class="bi @(Scope == "private" ? "bi-lock" : "bi-chat-square-text")"></i>
+                <span>@(Scope == "private" ? (People.Count == 0 ? "هنوز مهمانی در استودیو نیست؛ پیام خصوصی فقط بین میزبان و مهمانان همین استودیو است و بینندگان آن را نمی‌بینند." : "یک مهمان را انتخاب و گفتگوی خصوصی را شروع کنید.") : "گفتگو را شروع کنید. این پیام‌ها برای همه‌ی حاضران استودیو دیده می‌شود.")</span>
+            </div>
+        }
+        else
+        {
+            @foreach (var m in Visible)
+            {
+                <div class="sy-msg @(m.Mine ? "mine" : "")">
+                    <small>@(m.Mine ? "شما" : m.Name)@if (m.Scope == "private") { <i class="bi bi-lock-fill"></i> } · @m.Time</small>
+                    <p>@m.Text</p>
+                </div>
+            }
+        }
+    </div>
+    <form class="sy-chat-form" @onsubmit="SendAsync" @onsubmit:preventDefault>
+        <input class="form-control" @bind="Draft" @bind:event="oninput" maxlength="1000" autocomplete="off"
+               placeholder="@(Scope == "private" ? "پیام خصوصی…" : "پیام برای همه…")" disabled="@(!IsConnected)" />
+        <button class="btn btn-primary" type="submit" disabled="@(!IsConnected || string.IsNullOrWhiteSpace(Draft))"><i class="bi bi-send"></i></button>
+    </form>
+    <span class="sy-chat-grip" data-float-resize title="تغییر اندازه"></span>
+</div>
+
+@code {
+    [Parameter] public bool IsConnected { get; set; }
+    [Parameter] public EventCallback<int> OnUnread { get; set; }
+
+    private sealed record Person(string Identity, string Name);
+    private sealed class Msg
+    {
+        public string Id { get; set; } = "";
+        public string Scope { get; set; } = "public";
+        public string Text { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string From { get; set; } = "";
+        public string? To { get; set; }
+        public bool Mine { get; set; }
+        public long Ts { get; set; }
+        public string Time => DateTimeOffset.FromUnixTimeMilliseconds(Ts == 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : Ts).ToLocalTime().ToString("HH:mm");
+    }
+
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private readonly List<Msg> Messages = [];
+    private List<Person> People = [];
+    private DotNetObjectReference<StudioChat>? _ref;
+    private bool Floating, _wasConnected, _scrollNext;
+    private string Scope = "public", Draft = "", Peer = "";
+    private int PublicUnread, PrivateUnread;
+    private IEnumerable<Msg> Visible => Messages.Where(m => Scope == "public"
+        ? m.Scope == "public"
+        : m.Scope == "private" && (string.IsNullOrEmpty(Peer) || m.From == Peer || m.To == Peer));
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _ref = DotNetObjectReference.Create(this);
+            try { Floating = await JS.InvokeAsync<bool?>("lsUi.get", "live:chatFloating") ?? false; } catch (Exception) { }
+            if (Floating) { try { await JS.InvokeVoidAsync("lsFloat.open", "syChat"); } catch (Exception) { } }
+            StateHasChanged();
+        }
+        if (IsConnected != _wasConnected)
+        {
+            _wasConnected = IsConnected;
+            try { await JS.InvokeVoidAsync("liveStudio.setChatHandler", IsConnected ? _ref : null); } catch (Exception) { }
+            if (!IsConnected) { People = []; StateHasChanged(); }
+        }
+        if (_scrollNext) { _scrollNext = false; try { await JS.InvokeVoidAsync("lsFloat.scrollEnd", "syChatList"); } catch (Exception) { } }
+    }
+
+    private async Task ToggleFloatAsync()
+    {
+        Floating = !Floating;
+        try
+        {
+            await JS.InvokeVoidAsync("lsUi.set", "live:chatFloating", Floating);
+            if (Floating) await JS.InvokeVoidAsync("lsFloat.open", "syChat"); else await JS.InvokeVoidAsync("lsFloat.close", "syChat");
+        }
+        catch (Exception) { }
+    }
+
+    private async Task SetScope(string scope)
+    {
+        Scope = scope;
+        if (scope == "public") PublicUnread = 0; else PrivateUnread = 0;
+        _scrollNext = true;
+        await OnUnread.InvokeAsync(PublicUnread + PrivateUnread);
+    }
+
+    private async Task SendAsync()
+    {
+        var text = Draft.Trim();
+        if (text.Length == 0 || !IsConnected) return;
+        if (Scope == "private" && string.IsNullOrEmpty(Peer)) { return; }
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("liveStudio.sendChat", text, Scope == "private" ? Peer : null);
+            if (json is null) return;
+            var m = JsonSerializer.Deserialize<Msg>(json, Json);
+            if (m is not null) { Messages.Add(m); Draft = ""; _scrollNext = true; }
+        }
+        catch (Exception) { /* connection dropped; the status bar already reports it */ }
+    }
+
+    [JSInvokable]
+    public async Task OnChatMessage(string json)
+    {
+        var m = JsonSerializer.Deserialize<Msg>(json, Json);
+        if (m is null || Messages.Any(x => x.Id == m.Id)) return;
+        Messages.Add(m);
+        if (Messages.Count > 300) Messages.RemoveRange(0, Messages.Count - 300);
+        if (m.Scope == "private" ? Scope != "private" : Scope != "public") { if (m.Scope == "private") PrivateUnread++; else PublicUnread++; }
+        _scrollNext = true;
+        await OnUnread.InvokeAsync(PublicUnread + PrivateUnread);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnChatRoster(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        People = doc.RootElement.GetProperty("people").EnumerateArray()
+            .Select(p => new Person(p.GetProperty("identity").GetString() ?? "", p.GetProperty("name").GetString() ?? "")).ToList();
+        if (!string.IsNullOrEmpty(Peer) && People.All(p => p.Identity != Peer)) Peer = "";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("liveStudio.setChatHandler", (object?)null); } catch (Exception) { }
+        _ref?.Dispose();
+    }
+}

@@ -1,0 +1,123 @@
+/* ===== Studio shell (live + creator): header, stage, tool rail, floating chat ===== */
+.studio-focus .sidebar,.studio-focus .sidebar-scrim,.studio-focus .user-strip,.studio-focus .app-footer,.studio-focus .announce{display:none!important}
+.studio-focus .main-area{margin:0;padding:0;max-width:none;min-height:100vh}
+.sy-studio{--sy:#2f6bff;--sy-2:#1d4ed8;--sy-bg:#0a1220;--sy-panel:#0f1a2c;--sy-line:#1f3049;display:flex;flex-direction:column;height:100vh;background:var(--sy-bg);color:#e9f0fa;overflow:hidden}
+.sy-studio .btn-primary{background:linear-gradient(135deg,#3b78ff,#2456e6);box-shadow:0 8px 20px #2f6bff40}
+
+.sy-top{display:flex;align-items:center;gap:12px;min-height:58px;padding:0 18px;background:var(--sy-panel);border-bottom:1px solid var(--sy-line);flex:none}
+.sy-brand{display:flex;align-items:center;gap:9px;color:#fff;text-decoration:none;font-size:14px}.sy-brand i{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#3b78ff,#7c5cff);font-size:17px}
+.sy-title{display:flex;flex-direction:column;font-size:13px;font-weight:700;padding-inline-start:14px;border-inline-start:1px solid var(--sy-line);line-height:1.5}.sy-title small{font-weight:400;font-size:9px;color:#8ea2bf;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sy-spacer{flex:1}.sy-conn{display:flex;align-items:center;gap:7px;font-size:10px;color:#a9b8cf}.sy-conn i{font-size:8px}
+.sy-link{display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:9px;color:#b7c6dc;text-decoration:none;font-size:11px}.sy-link:hover{background:#17243a;color:#fff}.sy-link i{font-size:15px}
+.sy-golive{display:flex;align-items:center;gap:8px;border:0;border-radius:10px;padding:10px 22px;background:var(--sy);color:#fff;font:inherit;font-weight:800;font-size:12px;box-shadow:0 8px 22px #2f6bff55;transition:.15s}.sy-golive:hover:not(:disabled){background:#4a7fff}.sy-golive:disabled{opacity:.45;box-shadow:none}.sy-golive.live,.sy-golive.rec{background:#e5384f;box-shadow:0 8px 22px #e5384f55}.sy-golive i{font-size:16px}
+.sy-notice{display:flex;align-items:center;margin:8px 18px 0;flex:none}.sy-x{margin-inline-start:auto;border:0;background:transparent;color:inherit;opacity:.7}.sy-x:hover{opacity:1}
+
+.sy-studio .ls-composer-shell{margin:0;border:0;border-radius:0;flex:1;min-height:0;display:flex;flex-direction:column;background:var(--sy-bg);box-shadow:none;overflow:visible}
+.sy-studio .ls-composer-layout{flex:1;min-height:0;grid-template-columns:minmax(0,1fr) 350px 78px}
+.sy-studio .ls-composer-layout.no-inspector{grid-template-columns:minmax(0,1fr) 0 78px}
+.sy-studio .ls-composer-monitor-wrap{padding:16px 24px;background:var(--sy-bg);overflow:auto;min-height:0}
+.sy-studio .ls-composer-monitor{width:min(100%,calc((100vh - 300px) * 16 / 9));margin-inline:auto;border-radius:14px;border:1px solid #27406a;box-shadow:0 24px 60px #02061a99}
+.sy-studio .ls-composer-monitor-head{max-width:min(100%,calc((100vh - 300px) * 16 / 9));margin-inline:auto}
+.sy-studio .ls-composer-hint{max-width:760px;margin-inline:auto}
+.sy-studio .ls-program-monitor{max-width:760px;margin-inline:auto;background:#0f1a2c}
+
+.sy-panel{border:0!important;border-inline:1px solid var(--sy-line)!important;background:var(--sy-panel)!important;max-height:none!important;height:100%;overflow:auto;padding:18px 16px!important;min-width:0}
+.sy-panel.closed{padding:0!important;border:0!important;overflow:visible;width:0}
+.sy-pane.pane-off{display:none}
+.sy-pane.pane-off:has(.sy-chat.floating){display:block;height:0;overflow:visible}
+.sy-panel.closed .sy-pane:not(:has(.sy-chat.floating)){display:none}
+
+.sy-rail{display:flex;flex-direction:column;gap:4px;padding:10px 7px;background:var(--sy-panel);overflow:auto}
+.sy-rail button{position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;padding:11px 3px 9px;border:0;border-radius:13px;background:transparent;color:#93a6c2;font:inherit;font-size:9px;line-height:1.4;text-align:center;transition:.15s}
+.sy-rail button i{font-size:21px}.sy-rail button:hover{background:#16243b;color:#fff}.sy-rail button.active{background:#18305e;color:#8bb0ff}
+.sy-badge{position:absolute;top:3px;inset-inline-end:9px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#ff4d6a;color:#fff;font-style:normal;font-size:9px;font-weight:700;display:grid;place-items:center}
+
+.sy-bar{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:10px;padding:14px 0 4px}
+.sy-ctl{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:78px;padding:10px 12px 8px;border:1px solid #2a3f60;border-radius:14px;background:#13223a;color:#dbe6f6;font:inherit;font-size:9px;transition:.15s}
+.sy-ctl i{font-size:21px}.sy-ctl:hover:not(:disabled){background:#1b2f50;border-color:#3d5c8f}.sy-ctl:disabled{opacity:.45}
+.sy-ctl.off{background:#3a1a24;border-color:#7a2c3d;color:#ff9aae}.sy-ctl.on{background:#18305e;border-color:#3b78ff;color:#9cc0ff}.sy-ctl.danger{color:#ff8fa3}.sy-ctl.rec{background:#e5384f;border-color:#e5384f;color:#fff}.sy-ctl.wide{min-width:180px;flex-direction:row;justify-content:center;gap:9px;font-size:11px}
+.sy-bar-hint{font-size:11px;color:#8ea2bf}.sy-bar .recording-clock{font-size:11px;color:#ff8fa3;display:flex;align-items:center;gap:6px}
+
+.sy-lobby{position:absolute;inset:0;z-index:6;display:grid;place-items:center;padding:18px;background:radial-gradient(circle at 50% 35%,#16305f99,#050a12ee 72%)}
+.sy-lobby-card{max-width:440px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px}
+.sy-lobby-card>i{display:grid;place-items:center;width:62px;height:62px;border-radius:18px;background:linear-gradient(135deg,#3b78ff,#7c5cff);font-size:28px;color:#fff;box-shadow:0 14px 34px #3b78ff55}
+.sy-lobby-card h3{margin:6px 0 0;font-size:19px}.sy-lobby-card p{margin:0 0 8px;color:#a9b8cf;font-size:12px;line-height:2}
+
+/* chat (docked in the rail or floating anywhere on the page) */
+.sy-chat{display:flex;flex-direction:column;background:var(--sy-panel);min-height:0}
+.sy-chat.docked{height:calc(100vh - 150px);min-height:360px}
+.sy-chat.floating{position:fixed;z-index:1200;min-width:280px;min-height:240px;border:1px solid #33507f;border-radius:16px;box-shadow:0 26px 70px #000c;overflow:hidden}
+.sy-chat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 13px;font-size:12px}.sy-chat.floating .sy-chat-head{background:#16264255;cursor:grab;border-bottom:1px solid var(--sy-line);user-select:none}.sy-chat.floating .sy-chat-head:active{cursor:grabbing}
+.sy-chat-head strong i{margin-inline-end:7px;color:#7ea6ff}.sy-chat-head button{border:0;background:transparent;color:#a9b8cf;border-radius:8px;padding:4px 7px}.sy-chat-head button:hover{background:#1b2d4a;color:#fff}
+.sy-chat-tabs{display:flex;gap:6px;padding:0 12px 8px}.sy-chat-tabs button{flex:1;border:1px solid #27406a;background:#101e34;color:#a9b8cf;border-radius:10px;padding:7px 4px;font:inherit;font-size:10px;position:relative}.sy-chat-tabs button.active{background:#18305e;border-color:#3b78ff;color:#fff}.sy-chat-tabs .sy-badge{position:static;display:inline-grid;margin-inline-start:5px}
+.sy-chat-peer{padding:0 12px 8px}
+.sy-chat-list{flex:1;min-height:0;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:9px;background:#0b1626}
+.sy-chat-empty{margin:auto;text-align:center;color:#7f93b0;font-size:10px;line-height:2;display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px}.sy-chat-empty i{font-size:26px;color:#3b4f70}
+.sy-msg{max-width:86%;align-self:flex-start;background:#16253f;border-radius:12px 12px 12px 3px;padding:7px 10px}.sy-msg.mine{align-self:flex-end;background:#1d3f86;border-radius:12px 12px 3px 12px}
+.sy-msg small{display:block;font-size:8px;color:#9db1cf;margin-bottom:3px}.sy-msg small i{margin-inline:3px;font-size:8px}.sy-msg p{margin:0;font-size:11px;line-height:1.9;overflow-wrap:anywhere;white-space:pre-wrap}
+.sy-chat-form{display:flex;gap:7px;padding:10px 12px;border-top:1px solid var(--sy-line)}.sy-chat-form .form-control{flex:1}.sy-chat-form .btn{padding:8px 13px}
+.sy-chat-grip{display:none;position:absolute;right:0;bottom:0;width:20px;height:20px;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 50%,#5f7fb8 50%,#5f7fb8 58%,transparent 58%,transparent 70%,#5f7fb8 70%,#5f7fb8 78%,transparent 78%)}.sy-chat.floating .sy-chat-grip{display:block}
+
+/* resize handles on the selected layer (drag corners/edges like a graphics editor) */
+.ls-selection-box{border:2px solid #3b78ff!important}
+.ls-selection-box:before,.ls-selection-box:after{display:none!important}
+.ls-selection-box .ls-handle{position:absolute;width:12px;height:12px;background:#fff;border:2px solid #3b78ff;border-radius:3px;pointer-events:auto;z-index:3;touch-action:none;box-shadow:0 1px 4px #0008}
+.ls-selection-box .ls-handle:hover{background:#3b78ff}
+.ls-h-nw{top:-7px;left:-7px;cursor:nwse-resize}.ls-h-n{top:-7px;left:calc(50% - 6px);cursor:ns-resize}.ls-h-ne{top:-7px;right:-7px;cursor:nesw-resize}.ls-h-e{top:calc(50% - 6px);right:-7px;cursor:ew-resize}
+.ls-h-se{bottom:-7px;right:-7px;cursor:nwse-resize}.ls-h-s{bottom:-7px;left:calc(50% - 6px);cursor:ns-resize}.ls-h-sw{bottom:-7px;left:-7px;cursor:nesw-resize}.ls-h-w{top:calc(50% - 6px);left:-7px;cursor:ew-resize}
+
+@media(max-width:1100px){.sy-studio .ls-composer-layout{grid-template-columns:minmax(0,1fr) 300px 70px}.sy-link span{display:none}}
+@media(max-width:860px){
+  .sy-studio{height:auto;min-height:100vh;overflow:visible}.sy-studio .ls-composer-shell{overflow:visible}
+  .sy-studio .ls-composer-layout,.sy-studio .ls-composer-layout.no-inspector{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+  .sy-rail{flex-direction:row;overflow-x:auto;order:2;border-top:1px solid var(--sy-line)}.sy-rail button{min-width:68px}
+  .sy-panel{order:3;height:auto;max-height:70vh!important}.sy-panel.closed{display:none}
+  .sy-studio .ls-composer-monitor{width:100%}.sy-title small{display:none}.sy-top{flex-wrap:wrap;padding:8px 12px}
+}
+
+.ls-preset-chips .ls-preset-chip{display:inline-flex;border:1px solid #38506f;background:#12213a;border-radius:20px;overflow:hidden}
+.ls-preset-chips .ls-preset-chip button{border:0;border-radius:0;background:transparent;padding:3px 9px}
+.ls-preset-chips .ls-preset-chip button.x{padding:3px 6px;color:#ff9aa8}
+.sy-dest{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #2b3f5e;border-radius:10px;margin-bottom:6px;background:#0f1c33}
+.sy-dest strong{font-size:12px}.sy-dest small{display:block;color:#8ea3c0;direction:ltr;text-align:right}
+.sy-cmt{padding:8px 10px;border:1px solid #2b3f5e;border-radius:10px;margin-bottom:6px;background:#0f1c33}
+.sy-cmt b{color:#7fb0ff;font-size:12px}.sy-cmt p{margin:2px 0 6px;font-size:12px}
+.sy-cmt.super{border-color:#f5a623}
+.sy-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0}
+.sy-stats div{background:#0f1c33;border:1px solid #2b3f5e;border-radius:10px;padding:8px;text-align:center}
+.sy-stats b{display:block;font-size:18px}.sy-stats small{color:#8ea3c0;font-size:10px}
+
+/* ===== Light theme (optional): inverts the dark UI, media stay untouched ===== */
+html[data-theme="light"]{background:#f3f5f9}
+html[data-theme="light"] body{filter:invert(1) hue-rotate(180deg)}
+html[data-theme="light"] video,html[data-theme="light"] canvas,html[data-theme="light"] img,html[data-theme="light"] iframe,html[data-theme="light"] .no-invert{filter:invert(1) hue-rotate(180deg)}
+
+/* ===== Phone mode (auto under 860px, or forced from the studio header) ===== */
+html[data-phone="1"] .sy-studio{height:auto;min-height:100vh;overflow:visible}
+html[data-phone="1"] .sy-studio .ls-composer-shell{overflow:visible}
+html[data-phone="1"] .sy-studio .ls-composer-layout,html[data-phone="1"] .sy-studio .ls-composer-layout.no-inspector{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+html[data-phone="1"] .sy-rail{flex-direction:row;overflow-x:auto;order:2;border-top:1px solid var(--sy-line)}
+html[data-phone="1"] .sy-rail button{min-width:72px;min-height:58px}
+html[data-phone="1"] .sy-panel{order:3;height:auto;max-height:70vh!important}
+html[data-phone="1"] .sy-panel.closed{display:none}
+html[data-phone="1"] .sy-studio .ls-composer-monitor{width:100%}
+html[data-phone="1"] .sy-title small{display:none}
+html[data-phone="1"] .sy-top{flex-wrap:wrap;padding:8px 12px}
+html[data-phone="1"] .sy-link span{display:none}
+html[data-phone="1"] .sy-ctl{min-width:64px;min-height:56px}
+html[data-phone="1"] .sy-golive{min-height:44px}
+html[data-phone="1"] .sy-bar{flex-wrap:wrap;justify-content:center}
+html[data-phone="1"] .form-control,html[data-phone="1"] .form-select,html[data-phone="1"] .btn{min-height:42px}
+.sy-sfx{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.sy-sfx button{display:flex;align-items:center;gap:7px;justify-content:center;padding:10px 6px;border-radius:10px;border:1px solid #2b3f5e;background:#10203a;color:#dbe6f7;font:inherit;font-size:12px}
+.sy-sfx button:hover{background:#1c3a6b;border-color:#4d7ee8}
+.sy-tpl{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.sy-tpl button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 6px;border-radius:12px;border:1px solid #2b3f5e;background:#10203a;color:#dbe6f7;font:inherit;font-size:11px}
+.sy-tpl button i{font-size:20px;color:#7fb0ff}.sy-tpl button:hover{background:#1c3a6b}
+.sy-lobby-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px;align-items:start;text-align:right}
+.sy-lobby-video{position:relative;aspect-ratio:16/9;background:#050a12;border-radius:12px;overflow:hidden;border:1px solid #26364d}
+.sy-lobby-video video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.sy-meter{height:8px;border-radius:6px;background:#16253d;overflow:hidden;margin-top:6px}.sy-meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,#37d6a0,#f4b860,#ef5d79);transition:width .08s}
+.sy-checks{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.sy-checks span{font-size:11px;padding:4px 9px;border-radius:20px;background:#16253d}.sy-checks .ok{background:#12392f;color:#6fe8bd}.sy-checks .bad{background:#40202a;color:#ff9aa8}
+.sy-role{display:inline-block;font-size:10px;padding:2px 9px;border-radius:20px;background:#1c3a6b;color:#cfe0ff}
+@media(max-width:760px){.sy-lobby-grid{grid-template-columns:1fr}}

@@ -1,0 +1,7 @@
+**/bin
+**/obj
+data
+.keys
+_stale_backup
+.env*
+*.zip

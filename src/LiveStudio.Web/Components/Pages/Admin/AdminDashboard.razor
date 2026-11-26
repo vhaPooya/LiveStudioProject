@@ -1,0 +1,52 @@
+@page "/admin"
+@layout AdminLayout
+@attribute [Authorize(Policy = "perm:dashboard")]
+@inject IAdminStatsService Stats
+@inject IMonitoringService Monitoring
+
+<PageTitle>داشبورد مدیریت | LiveStudio</PageTitle>
+<header class="topbar"><div><div class="eyebrow">ADMIN / OVERVIEW</div><h1>داشبورد مدیریت</h1></div><button class="btn btn-outline-secondary" @onclick="LoadAsync"><i class="bi bi-arrow-repeat ms-1"></i>بروزرسانی</button></header>
+
+@if (_stats is null) { <div class="loading-panel">در حال بارگذاری...</div> }
+else
+{
+    <section class="stat-grid">
+        <div class="stat-card"><i class="bi bi-people"></i><small>کل کاربران</small><strong>@Fa.Num(_stats.TotalUsers)</strong><em>@_stats.NewUsers7Days کاربر جدید در ۷ روز اخیر</em></div>
+        <div class="stat-card ok"><i class="bi bi-gem"></i><small>اشتراک‌های فعال</small><strong>@Fa.Num(_stats.ActiveSubscriptions)</strong><em>@_stats.ExpiringIn7Days مورد تا ۷ روز آینده منقضی می‌شود</em></div>
+        <div class="stat-card"><i class="bi bi-cash-coin"></i><small>درآمد این ماه</small><strong>@Fa.Money(_stats.RevenueThisMonth)</strong><em>کل درآمد: @Fa.Money(_stats.RevenueTotal)</em></div>
+        <div class="stat-card @(_stats.OpenTickets > 0 ? "warn" : "")"><i class="bi bi-life-preserver"></i><small>تیکت‌های نیازمند پاسخ</small><strong>@Fa.Num(_stats.OpenTickets)</strong><em>باز یا پاسخ مشتری</em></div>
+        <div class="stat-card"><i class="bi bi-youtube"></i><small>کانال‌های متصل</small><strong>@Fa.Num(_stats.ConnectedChannels)</strong><em>OAuth در وضعیت Connected</em></div>
+        <div class="stat-card @(_stats.OpenAlerts > 0 ? "bad" : "ok")"><i class="bi bi-activity"></i><small>هشدارهای فعال</small><strong>@Fa.Num(_stats.OpenAlerts)</strong><em>@(_stats.OpenAlerts > 0 ? "نیازمند بررسی" : "همه‌چیز عادی است")</em></div>
+    </section>
+
+    <div class="two-col mt-3">
+        <section class="panel"><div class="panel-heading"><div><div class="eyebrow">SIGN-UPS</div><h3>ثبت‌نام‌های ۱۴ روز اخیر</h3></div></div>
+            <div class="bar-chart">@foreach (var p in _stats.Signups14Days) { <div class="bar"><i style="height:@Height(p.Value, _stats.Signups14Days)%"><b>@p.Value</b></i><span>@Fa.Date(p.Day)[5..]</span></div> }</div></section>
+        <section class="panel"><div class="panel-heading"><div><div class="eyebrow">REVENUE</div><h3>درآمد ۱۴ روز اخیر (تومان)</h3></div></div>
+            <div class="bar-chart green">@foreach (var p in _stats.Revenue14Days) { <div class="bar"><i style="height:@Height(p.Value, _stats.Revenue14Days)%"><b>@(p.Value == 0 ? "" : Fa.Num(p.Value / 1000) + "k")</b></i><span>@Fa.Date(p.Day)[5..]</span></div> }</div></section>
+    </div>
+
+    @if (_snapshot is not null)
+    {
+        <section class="panel mt-3"><div class="panel-heading"><div><div class="eyebrow">SYSTEM HEALTH</div><h3>وضعیت سرویس‌ها</h3></div><a class="btn btn-outline-secondary btn-sm" href="/admin/monitoring">پایش کامل</a></div>
+            <div class="health-grid">@foreach (var s in _snapshot.Services) { <div class="health @(s.Unknown ? "unknown" : s.Healthy ? "ok" : "bad")"><i class="bi @(s.Unknown ? "bi-dash-circle" : s.Healthy ? "bi-check-circle-fill" : "bi-x-circle-fill")"></i><div><strong>@s.Title</strong><small>@s.Detail</small></div></div> }</div></section>
+    }
+}
+
+@code {
+    private AdminStats? _stats;
+    private SystemSnapshot? _snapshot;
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _stats = await Stats.GetAsync();
+        _snapshot = Monitoring.LastSnapshot;
+    }
+
+    private static int Height(long value, IReadOnlyList<DailyPoint> series)
+    {
+        var max = series.Max(x => x.Value);
+        return max <= 0 ? 3 : Math.Max(3, (int)(value * 100 / max));
+    }
+}

@@ -1,0 +1,69 @@
+@page "/panel/tickets/{Id:guid}"
+@attribute [Authorize(Policy = "Customer")]
+@inject CurrentUser User
+@inject ITicketService Tickets
+
+<PageTitle>تیکت | LiveStudio</PageTitle>
+
+@if (_detail is null)
+{
+    <div class="loading-panel">@(_loaded ? "تیکت پیدا نشد." : "در حال بارگذاری...")</div>
+    <a class="btn btn-outline-secondary" href="/panel/tickets">بازگشت به تیکت‌ها</a>
+}
+else
+{
+    <header class="topbar"><div><div class="eyebrow">TICKET #@_detail.Ticket.Number</div><h1>@_detail.Ticket.Subject</h1></div>
+        <div class="top-actions"><span class="b @Fa.TicketStatusClass(_detail.Ticket.Status)">@Fa.TicketStatusText(_detail.Ticket.Status)</span><a class="btn btn-outline-secondary" href="/panel/tickets">بازگشت</a></div></header>
+    <div class="ticket-meta"><span><i class="bi bi-building"></i>@Fa.Department(_detail.Ticket.Department)</span><span class="b @Fa.PriorityClass(_detail.Ticket.Priority)">اولویت @Fa.Priority(_detail.Ticket.Priority)</span><span><i class="bi bi-clock"></i>@Fa.Date(_detail.Ticket.CreatedAt, true)</span></div>
+    <Notice Error="@_error" />
+    <section class="chat">
+        @foreach (var m in _detail.Messages)
+        {
+            <div class="msg @(m.IsStaff ? "staff" : "mine")">
+                <div class="msg-head"><strong>@(m.IsStaff ? "پشتیبانی LiveStudio" : m.SenderName)</strong><small>@Fa.Date(m.CreatedAt, true)</small></div>
+                <div class="msg-body">@m.Body</div>
+            </div>
+        }
+    </section>
+    @if (_detail.Ticket.Status != TicketStatus.Closed)
+    {
+        <section class="panel mt-3">
+            <textarea class="form-control" rows="4" maxlength="5000" @bind="_reply" @bind:event="oninput" placeholder="پاسخ خود را بنویسید..."></textarea>
+            <div class="btn-row mt-3"><button class="btn btn-primary" @onclick="SendAsync" disabled="@(_busy || _reply.Trim().Length < 2)"><i class="bi bi-send ms-1"></i>ارسال پاسخ</button>
+                <button class="btn btn-outline-secondary" @onclick="CloseAsync" disabled="@_busy"><i class="bi bi-check2-circle ms-1"></i>بستن تیکت</button></div>
+        </section>
+    }
+    else { <div class="notice notice-success mt-3">این تیکت بسته شده است. برای موضوع جدید، تیکت تازه‌ای ثبت کنید.</div> }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private TicketDetail? _detail;
+    private bool _loaded, _busy;
+    private string _reply = string.Empty;
+    private string? _error;
+    private Guid _userId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _userId = await User.UserIdAsync() ?? Guid.Empty;
+        _detail = await Tickets.GetAsync(Id, _userId);
+        _loaded = true;
+    }
+
+    private async Task SendAsync()
+    {
+        _busy = true; _error = null;
+        var result = await Tickets.ReplyAsync(Id, _userId, false, await User.NameAsync(), _reply);
+        if (result.Success) { _reply = string.Empty; _detail = await Tickets.GetAsync(Id, _userId); } else _error = result.Error;
+        _busy = false;
+    }
+
+    private async Task CloseAsync()
+    {
+        _busy = true;
+        await Tickets.SetStatusAsync(Id, TicketStatus.Closed, await User.ActorAsync());
+        _detail = await Tickets.GetAsync(Id, _userId);
+        _busy = false;
+    }
+}
